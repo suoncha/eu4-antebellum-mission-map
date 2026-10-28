@@ -1,0 +1,7 @@
+# Tags with a dedicated mission tree. Separate with spaces, commas or new lines.
+# Lines starting with # are ignored.
+
+DAN NOR SWE SCO
+WLS BAV STY LIT LVA
+BOH MVA PLN LUD NOV
+YUA ROB SLH KRR KUC

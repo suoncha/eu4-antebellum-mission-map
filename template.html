@@ -1,0 +1,572 @@
+<title>__TITLE__ Mission Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: full-height map table; header strip on top; ledger panel docked right (bottom sheet on phones);
+   map modes float top-centre over the map, bookmark shields bottom-centre, like the game's start screen */
+:root {
+  --bg: #e7e9e4; --panel: #f6f7f3; --ink: #1f2522; --muted: #5d6762; --line: #c6cbc3;
+  --accent: #8a5a12; --chip: #e2e5de; --card: #ffffff;
+  --sea: #a9bfc9; --land: #d4d5d1; --waste: #9b9a94; --nohist: #e9e3d3; --border: #2a2f2c;
+  --f-display: "Alegreya SC", "Palatino Linotype", Georgia, serif;
+  --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161a19; --panel: #1e2321; --ink: #e5e8e3; --muted: #9aa49e; --line: #353c39;
+  --accent: #e0a94c; --chip: #2a302d; --card: #262c29;
+  --sea: #24343c; --land: #3b3d3c; --waste: #2b2b29; --nohist: #4a463c; --border: #0c0e0d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #161a19; --panel: #1e2321; --ink: #e5e8e3; --muted: #9aa49e; --line: #353c39;
+  --accent: #e0a94c; --chip: #2a302d; --card: #262c29;
+  --sea: #24343c; --land: #3b3d3c; --waste: #2b2b29; --nohist: #4a463c; --border: #0c0e0d; color-scheme: dark }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; overflow: hidden; }
+.app { height: 100%; display: flex; flex-direction: column; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: 1.5rem; margin: 0; letter-spacing: .01em; line-height: 1.1; }
+.sub { color: var(--muted); font-size: .85rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .82rem; color: var(--muted); margin-left: auto; align-items: center; }
+.sw { display: inline-block; width: 14px; height: 14px; vertical-align: -3px; margin-right: 5px; border: 1px solid var(--border); }
+.sw.ded { background: #b5562f; }
+.sw.add { background: repeating-linear-gradient(45deg, #b5562f 0 3px, var(--land) 3px 6px); }
+.sw.none { background: var(--land); }
+.sw.multi { background: linear-gradient(90deg, #c9a227 0 33%, #4f7cac 33% 66%, #8c4f8f 66%); }
+.main { flex: 1; display: flex; min-height: 0; position: relative; }
+.mapwrap { flex: 1; position: relative; min-width: 0; overflow: hidden; background: var(--sea); touch-action: none; cursor: grab; }
+.mapwrap.drag { cursor: grabbing; }
+canvas { display: block; width: 100%; height: 100%; }
+button { font-family: var(--f-body); }
+button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, .row:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* map modes */
+.modes { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px; gap: 2px; box-shadow: 0 2px 8px rgb(0 0 0 / .15); max-width: calc(100% - 100px); overflow-x: auto; }
+.modes button { border: 0; background: transparent; color: var(--ink); font-weight: 600; font-size: .85rem; padding: 6px 12px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
+.modes button:hover { background: var(--chip); }
+.modes button[aria-pressed="true"] { background: var(--accent); color: var(--panel); }
+.zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.zoom button, .btn { font: 600 1rem var(--f-body); width: 32px; height: 32px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 3px; cursor: pointer; }
+.btn { width: auto; height: auto; padding: 4px 10px; font-size: .85rem; }
+.hint { position: absolute; left: 10px; top: 10px; max-width: 220px; font-size: .74rem; line-height: 1.45; color: var(--muted);
+  background: var(--panel); padding: 4px 8px; border: 1px solid var(--line); border-radius: 3px; }
+.hover { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); padding: 4px 8px; font-size: .8rem; border-radius: 3px; white-space: nowrap; z-index: 3; }
+
+/* bookmark shields */
+.shields { position: absolute; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 10px;
+  max-width: calc(100% - 20px); overflow-x: auto; padding: 4px 6px 2px; }
+.shield { border: 0; background: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 64px; flex: none; color: var(--ink); }
+.shield .sh { width: 52px; height: 58px; border-radius: 6px 6px 50% 50% / 6px 6px 55% 55%; border: 2px solid var(--border);
+  box-shadow: 0 2px 6px rgb(0 0 0 / .35); overflow: hidden; transition: transform .12s; background: var(--land); }
+.shield .sh .flag { width: 100%; height: 100%; border: 0; border-radius: 0; }
+.shield:hover .sh, .shield:focus-visible .sh { transform: translateY(-3px); }
+.shield.on .sh { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgb(0 0 0 / .35); }
+.shield span { font-size: .72rem; font-weight: 600; background: var(--panel); padding: 0 5px; border-radius: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* side panel */
+aside { width: 440px; max-width: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
+.ph { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+.ph input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 3px; }
+.pb { overflow-y: auto; padding: 12px 14px 24px; flex: 1; min-height: 0; }
+h2 { font-family: var(--f-display); font-size: 1.35rem; margin: 0; text-wrap: balance; line-height: 1.15; }
+.grp { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 16px 0 4px; font-weight: 600; }
+.tagcode { font-family: var(--f-mono); font-size: .78rem; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.chip { background: var(--chip); border-radius: 2px; padding: 1px 6px; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.chip.d { background: var(--accent); color: var(--panel); font-weight: 600; }
+details { border-bottom: 1px solid var(--line); }
+details > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 9px 2px; font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: ""; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .12s; flex: none; }
+details[open] > summary::before { transform: rotate(90deg); }
+details > summary .cnt { margin-left: auto; font-family: var(--f-mono); letter-spacing: 0; }
+details > .body { padding: 0 0 10px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 3px; cursor: pointer; }
+.row:hover { background: var(--chip); }
+.row .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .c { font-family: var(--f-mono); font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.flag { display: inline-block; flex: none; background-repeat: no-repeat; border: 1px solid var(--border); border-radius: 2px; }
+.ricon { display: inline-block; flex: none; background-repeat: no-repeat; }
+.empty { color: var(--muted); font-size: .88rem; margin: 4px 0 8px; }
+textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); padding: 6px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 3px; resize: vertical; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; align-items: center; }
+.tools .note { font-size: .78rem; color: var(--muted); }
+
+/* country detail */
+.dhead { display: flex; gap: 12px; align-items: center; }
+.dhead .flag { width: 56px; height: 56px; border-radius: 4px 4px 50% 50% / 4px 4px 55% 55%; border-width: 2px; }
+.dname { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lore { white-space: pre-line; line-height: 1.5; font-size: .92rem; max-width: 65ch; margin: 0; }
+.src { font-size: .78rem; color: var(--muted); margin: 0 0 8px; }
+
+/* mission tree preview */
+.tree { overflow-x: auto; padding-bottom: 6px; }
+.tgrid { display: grid; grid-template-columns: repeat(var(--cols), minmax(74px, 1fr)); gap: 6px 6px; min-width: calc(var(--cols) * 80px); }
+.slot-h { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; min-height: 22px; }
+.slot-h .lbl { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+.slot-h button { font: 600 .7rem var(--f-mono); border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 2px; padding: 0 5px; cursor: pointer; }
+.slot-h button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 3px; padding: 5px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; cursor: default; min-width: 0; }
+.card .mi { width: 40px; height: 40px; border-radius: 3px; background-color: var(--chip); background-repeat: no-repeat; flex: none; }
+.card .mt { font-size: .72rem; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card.req { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.card.cur { background: var(--chip); }
+.tip { position: fixed; z-index: 20; max-width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; font-size: .82rem; line-height: 1.4; box-shadow: 0 4px 14px rgb(0 0 0 / .25); pointer-events: none; white-space: pre-line; }
+.tip b { display: block; font-size: .88rem; margin-bottom: 2px; }
+.tip .r { color: var(--muted); font-size: .76rem; margin-top: 4px; }
+
+@media (max-width: 760px) {
+  .main { flex-direction: column; }
+  aside { width: 100%; height: 48%; border-left: 0; border-top: 1px solid var(--line); }
+  .legend { margin-left: 0; }
+  .hint { display: none; }
+  .modes { top: 6px; max-width: calc(100% - 60px); left: 8px; transform: none; }
+  .shield { width: 54px; } .shield .sh { width: 42px; height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+
+<div class="app">
+  <header>
+    <div>
+      <h1>__TITLE__</h1>
+      <div class="sub">__SUBTITLE__</div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </header>
+  <div class="main">
+    <div class="mapwrap" id="mapwrap">
+      <canvas id="map"></canvas>
+      <div class="modes" id="modes" role="toolbar" aria-label="Map mode"></div>
+      <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
+      <div class="hint" id="hint"></div>
+      <div class="shields" id="shields" aria-label="Suggested countries"></div>
+      <div class="hover" id="hover" hidden></div>
+    </div>
+    <aside>
+      <div class="ph">
+        <input id="q" type="search" placeholder="Search tag or country" aria-label="Search">
+        <button class="btn" id="back" hidden>Back</button>
+      </div>
+      <div class="pb" id="panel"></div>
+    </aside>
+  </div>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+const D = /*__DATA__*/null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = n => n.toLocaleString('en-US');
+
+// ---------------------------------------------------------------- modes
+const MODES = [
+  { id: 'actum', label: D.title, key: '1' },
+  { id: 'ante-bellum', label: 'Ante Bellum', key: '2' },
+  { id: 'religion', label: 'Religion', key: '3' },
+  { id: 'culture', label: 'Culture', key: '4' },
+];
+let mode = 'actum';
+
+// ---------------------------------------------------------------- tag sets
+const KEY = 'aba-mission-map-dedicated';
+let DED = new Set(D.dedicated);
+try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (Array.isArray(s)) DED = new Set(s); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...DED])); } catch (e) {} };
+const ADD = new Set(D.additional);
+const ABT = new Set(D.abTree);
+const parseTags = s => s.toUpperCase().split(/[\s,;]+/).filter(Boolean);
+const actumState = t => DED.has(t) ? 2 : ADD.has(t) ? 1 : 0;
+
+// ---------------------------------------------------------------- colours
+function hashColor(t) { let h = 0; for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return [80 + h % 150, 80 + (h >> 8) % 150, 80 + (h >> 16) % 150]; }
+const tagCol = t => (D.tags[t] && D.tags[t].color) || hashColor(t);
+const css = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+function tokenRGB(name) {
+  const el = document.createElement('i'); el.style.color = `var(${name})`; document.body.appendChild(el);
+  const m = getComputedStyle(el).color.match(/\d+/g).map(Number); el.remove(); return m.slice(0, 3);
+}
+const mix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] * (1 - t) + b[i] * t));
+// greyed-out tag: keep a hint of its lightness so neighbours stay distinguishable
+const grey = (c, land) => { const l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]; return mix([l, l, l], land, 0.72); };
+
+// ---------------------------------------------------------------- sprites
+function sprite(sheet, i, size, cls, extra = '') {
+  const s = D[sheet]; if (!s.uri || i == null || i < 0) return null;
+  const c = s.cols, x = (i % c) * size, y = Math.floor(i / c) * size;
+  return `<span class="${cls}" style="width:${size}px;height:${size}px;background-image:var(--${sheet});background-size:${c * size}px auto;background-position:-${x}px -${y}px;${extra}" aria-hidden="true"></span>`;
+}
+for (const k of ['flags', 'relIcons', 'msnIcons']) if (D[k].uri) document.documentElement.style.setProperty('--' + k, `url(${D[k].uri})`);
+const flag = (t, size) => sprite('flags', D.flags.idx[t], size, 'flag') ||
+  `<span class="flag" style="width:${size}px;height:${size}px;background:${css(tagCol(t))}" aria-hidden="true"></span>`;
+const relIcon = (r, size) => sprite('relIcons', D.relIcons.idx[r], size, 'ricon') || '';
+const tagName = t => (D.tags[t] && D.tags[t].name) || t;
+
+// ---------------------------------------------------------------- map data
+const W = D.w, H = D.h, ids = new Uint16Array(W * H), NP = D.owner.length;
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const octx = off.getContext('2d');
+const tagIndex = {}; Object.keys(D.tags).forEach((t, i) => tagIndex[t] = i);
+const ownerIdx = new Int32Array(NP).map((_, p) => D.owner[p] ? tagIndex[D.owner[p]] ?? -2 : -1);
+const bbox = {};
+let selected = null, ready = false;
+
+const img = new Image();
+img.onload = () => {
+  octx.drawImage(img, 0, 0);
+  const px = octx.getImageData(0, 0, W, H).data;
+  for (let i = 0, j = 0; i < ids.length; i++, j += 4) ids[i] = (px[j] << 8) | px[j + 1];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const t = D.owner[ids[y * W + x]]; if (!t) continue;
+    const b = bbox[t] || (bbox[t] = [x, y, x, y]);
+    if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
+  }
+  ready = true; paint(); reset();
+};
+img.src = 'data:image/png;base64,' + D.img;
+
+function provinceColors() {
+  const sea = tokenRGB('--sea'), land = tokenRGB('--land'), waste = tokenRGB('--waste'), nohist = tokenRGB('--nohist');
+  const col = new Uint8ClampedArray(NP * 3), alt = new Uint8ClampedArray(NP * 3), stripe = new Uint8Array(NP);
+  const set = (a, p, c) => { a[p * 3] = c[0]; a[p * 3 + 1] = c[1]; a[p * 3 + 2] = c[2]; };
+  const cache = {};
+  for (let p = 0; p < NP; p++) {
+    const k = D.kind[p], t = D.owner[p];
+    let c = land;
+    if (k === 2) c = sea; else if (k === 3) c = waste; else if (k === 4) c = nohist;
+    else if (mode === 'religion') { const r = D.religions[D.prel[p]]; c = r ? r.color : land; }
+    else if (mode === 'culture') { const r = D.cultures[D.pcul[p]]; c = r ? r.color : land; }
+    else if (t) {
+      const st = mode === 'actum' ? actumState(t) : (ABT.has(t) ? 2 : 0);
+      const e = cache[t] || (cache[t] = { full: tagCol(t), dim: grey(tagCol(t), land) });
+      if (st === 2) c = e.full;
+      else if (st === 1) { c = e.full; stripe[p] = 1; set(alt, p, e.dim); }
+      else c = e.dim;
+    }
+    set(col, p, c);
+  }
+  return { col, alt, stripe };
+}
+
+function paint() {
+  if (!ready) return;
+  const border = tokenRGB('--border'), accent = tokenRGB('--accent');
+  const { col, alt, stripe } = provinceColors();
+  const out = octx.createImageData(W, H), o = out.data;
+  const sel = selected != null ? tagIndex[selected] : -9;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, p = ids[i], j = i * 4;
+    const src = stripe[p] && ((x + y) & 7) >= 4 ? alt : col;
+    let r = src[p * 3], g = src[p * 3 + 1], b = src[p * 3 + 2];
+    const k = D.kind[p];
+    if (k !== 2) {
+      const ow = ownerIdx[p];
+      const pr = x + 1 < W ? ids[i + 1] : p, pd = y + 1 < H ? ids[i + W] : p;
+      const pl = x > 0 ? ids[i - 1] : p, pu = y > 0 ? ids[i - W] : p;
+      const coast = D.kind[pr] === 2 || D.kind[pd] === 2;
+      const edge = ownerIdx[pr] !== ow || ownerIdx[pd] !== ow;
+      const selEdge = ow === sel && (edge || ownerIdx[pl] !== ow || ownerIdx[pu] !== ow);
+      if (selEdge) { r = accent[0]; g = accent[1]; b = accent[2]; }
+      else if (edge && ow >= 0 || coast) { r = r * .4 + border[0] * .6; g = g * .4 + border[1] * .6; b = b * .4 + border[2] * .6; }
+      else if (pr !== p || pd !== p) { r = r * .88 + border[0] * .12; g = g * .88 + border[1] * .12; b = b * .88 + border[2] * .12; }
+    }
+    o[j] = r; o[j + 1] = g; o[j + 2] = b; o[j + 3] = 255;
+  }
+  octx.putImageData(out, 0, 0);
+  draw();
+}
+
+// ---------------------------------------------------------------- view
+const cv = $('map'), ctx = cv.getContext('2d'), wrap = $('mapwrap');
+let view = { s: 1, x: 0, y: 0 }, seaCss = '';
+function resize() {
+  const r = wrap.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); draw();
+}
+function reset() { const r = wrap.getBoundingClientRect(); const s = Math.max(r.width / W, r.height / H * 0.9);
+  view = { s, x: (r.width - W * s) / 2, y: (r.height - H * s) / 2 }; draw(); }
+function draw() {
+  const dpr = devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = seaCss || (seaCss = css(tokenRGB('--sea')));
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  if (!ready) return;
+  ctx.imageSmoothingEnabled = view.s < 1;
+  ctx.drawImage(off, view.x, view.y, W * view.s, H * view.s);
+}
+function zoomAt(f, cx, cy) {
+  const s = Math.min(40, Math.max(0.2, view.s * f)); f = s / view.s;
+  view.x = cx - (cx - view.x) * f; view.y = cy - (cy - view.y) * f; view.s = s; draw();
+}
+function focusTag(t) {
+  const b = bbox[t]; if (!b) return;
+  const r = wrap.getBoundingClientRect(), bw = b[2] - b[0] + 1, bh = b[3] - b[1] + 1;
+  const s = Math.min(12, Math.max(0.6, Math.min(r.width / bw, r.height / bh) * 0.45));
+  view = { s, x: r.width / 2 - (b[0] + bw / 2) * s, y: r.height / 2 - (b[1] + bh / 2) * s }; draw();
+}
+function pick(cx, cy) {
+  const x = Math.floor((cx - view.x) / view.s), y = Math.floor((cy - view.y) / view.s);
+  return x < 0 || y < 0 || x >= W || y >= H ? -1 : ids[y * W + x];
+}
+
+// pointer: drag to pan, pinch to zoom, click to select, right click to toggle a dedicated tree
+const pts = new Map(); let moved = false, pinch = null;
+wrap.addEventListener('pointerdown', e => {
+  if (e.target.closest('button, .modes, .shields') || e.button === 2) return;
+  wrap.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); moved = false; wrap.classList.add('drag');
+  if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); }
+});
+wrap.addEventListener('pointermove', e => {
+  const r = wrap.getBoundingClientRect();
+  if (!pts.has(e.pointerId)) { if (!e.target.closest('.modes, .shields, .zoom')) hover(e.clientX - r.left, e.clientY - r.top); else $('hover').hidden = true; return; }
+  const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pts.size === 2) { const [a, b] = [...pts.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch) zoomAt(d / pinch, (a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top); pinch = d; moved = true; return; }
+  const dx = e.clientX - prev[0], dy = e.clientY - prev[1];
+  if (dx || dy) { if (Math.abs(dx) + Math.abs(dy) > 3) moved = true; view.x += dx; view.y += dy; draw(); }
+});
+function up(e) {
+  if (!pts.has(e.pointerId)) return;
+  pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) wrap.classList.remove('drag');
+  if (!moved && e.type === 'pointerup') { const t = tagAt(e); t ? select(t, false) : select(null); }
+}
+const tagAt = e => { const r = wrap.getBoundingClientRect(); const p = pick(e.clientX - r.left, e.clientY - r.top); return p >= 0 ? D.owner[p] || null : null; };
+wrap.addEventListener('pointerup', up); wrap.addEventListener('pointercancel', up);
+wrap.addEventListener('pointerleave', () => { $('hover').hidden = true; });
+wrap.addEventListener('contextmenu', e => {
+  if (e.target.closest('.modes, .shields, .zoom')) return;
+  e.preventDefault();
+  const t = tagAt(e); if (!t) return;
+  if (mode !== 'actum') setMode('actum');
+  DED.has(t) ? DED.delete(t) : DED.add(t); save(); paint(); refreshPanel();
+});
+wrap.addEventListener('wheel', e => { e.preventDefault(); const r = wrap.getBoundingClientRect(); zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+$('zin').onclick = () => { const r = wrap.getBoundingClientRect(); zoomAt(1.5, r.width / 2, r.height / 2); };
+$('zout').onclick = () => { const r = wrap.getBoundingClientRect(); zoomAt(1 / 1.5, r.width / 2, r.height / 2); };
+addEventListener('keydown', e => {
+  if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) { if (e.key === 'Escape') e.target.blur(); return; }
+  if (e.key === 'r' || e.key === 'R') reset();
+  if (e.key === 'Escape') select(null);
+  const m = MODES.find(m => m.key === e.key); if (m) setMode(m.id);
+});
+addEventListener('resize', resize);
+
+function hover(x, y) {
+  const h = $('hover'), p = pick(x, y);
+  if (p <= 0 || D.kind[p] === 2) { h.hidden = true; return; }
+  const t = D.owner[p];
+  let extra = '';
+  if (mode === 'religion' && D.prel[p]) extra = ' · ' + esc((D.religions[D.prel[p]] || {}).name || D.prel[p]);
+  else if (mode === 'culture' && D.pcul[p]) extra = ' · ' + esc((D.cultures[D.pcul[p]] || {}).name || D.pcul[p]);
+  else if (t && mode === 'actum') extra = ['', ' · additional content', ' · dedicated tree'][actumState(t)];
+  else if (t && mode === 'ante-bellum' && ABT.has(t)) extra = ' · Ante Bellum tree';
+  h.innerHTML = `${esc(D.pname[p] || '#' + p)}${t ? ` · <b>${esc(tagName(t))}</b> <span class="tagcode">${t}</span>` : ''}${extra}`;
+  h.hidden = false;
+  const r = wrap.getBoundingClientRect();
+  h.style.left = Math.max(4, Math.min(x + 14, r.width - h.offsetWidth - 6)) + 'px';
+  h.style.top = Math.max(4, Math.min(y + 14, r.height - h.offsetHeight - 6)) + 'px';
+}
+
+// ---------------------------------------------------------------- chrome: modes, legend, shields
+function renderModes() {
+  $('modes').innerHTML = MODES.map(m => `<button data-mode="${m.id}" aria-pressed="${m.id === mode}" title="${esc(m.label)} (${m.key})">${esc(m.label)}</button>`).join('');
+  const L = {
+    actum: '<span><i class="sw ded"></i>Dedicated mission tree</span><span><i class="sw add"></i>Additional content</span><span><i class="sw none"></i>None</span>',
+    'ante-bellum': '<span><i class="sw ded"></i>Ante Bellum mission tree</span><span><i class="sw none"></i>None</span>',
+    religion: '<span><i class="sw multi"></i>Province religion</span>',
+    culture: '<span><i class="sw multi"></i>Province culture</span>',
+  };
+  $('legend').innerHTML = L[mode];
+  $('hint').textContent = 'Click: details · Wheel: zoom · Drag: pan · R: reset · Esc: close · 1–4: map mode' + (mode === 'actum' ? ' · Right click: toggle dedicated tree' : '');
+}
+$('modes').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
+function setMode(m) {
+  if (m === mode) return;
+  mode = m; renderModes(); paint(); refreshPanel();
+  try { history.replaceState(null, '', '#' + m); } catch (e) {}
+}
+function renderShields() {
+  $('shields').innerHTML = D.favorites.filter(t => D.tags[t]).map(t =>
+    `<button class="shield${t === selected ? ' on' : ''}" data-tag="${t}" title="${esc(tagName(t))}"><span class="sh">${flag(t, 52)}</span><span>${esc(tagName(t))}</span></button>`).join('');
+}
+$('shields').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if (b) select(b.dataset.tag); });
+
+// ---------------------------------------------------------------- side panel: lists
+const panel = $('panel');
+const openState = {};  // section id -> open, remembered while the page is open
+function tagRow(t) {
+  const x = D.tags[t];
+  return `<div class="row" tabindex="0" data-tag="${t}">${flag(t, 22)}<span class="n">${esc(tagName(t))} <span class="tagcode">${t}</span></span><span class="c">${x ? `${x.provs} prov · ${fmt(x.dev)} dev` : 'not on map'}</span></div>`;
+}
+function section(id, title, tags, defOpen, extraHead = '') {
+  const q = $('q').value.trim();
+  const open = q ? tags.length > 0 : (openState[id] ?? defOpen);
+  return `<details data-sec="${id}"${open ? ' open' : ''}><summary>${extraHead}<span>${esc(title)}</span><span class="cnt">${tags.length}</span></summary><div class="body">${
+    tags.map(tagRow).join('') || '<p class="empty">None.</p>'}</div></details>`;
+}
+const byName = (a, b) => tagName(a).localeCompare(tagName(b));
+function matches(t) {
+  const q = $('q').value.trim().toLowerCase();
+  return !q || t.toLowerCase().includes(q) || tagName(t).toLowerCase().includes(q);
+}
+function renderList() {
+  const all = Object.keys(D.tags).filter(matches).sort(byName);
+  let html = '';
+  if (mode === 'actum') {
+    const ded = [...DED].filter(matches).sort(byName);
+    html = `<p class="grp">Dedicated mission trees</p><textarea id="ed" rows="3" spellcheck="false" aria-label="Tags with a dedicated mission tree">${[...DED].join(' ')}</textarea>
+      <div class="tools"><button class="btn" id="apply">Apply</button><button class="btn" id="revert">Reset</button><span class="note">Right click a country to toggle it.</span></div>` +
+      section('a-ded', 'Dedicated mission tree', ded, true) +
+      section('a-add', 'Additional content', all.filter(t => !DED.has(t) && ADD.has(t)), true) +
+      section('a-none', 'No mission tree', all.filter(t => !actumState(t)), false);
+  } else if (mode === 'ante-bellum') {
+    html = section('b-tree', 'Ante Bellum mission tree', all.filter(t => ABT.has(t)), true) +
+      section('b-none', 'No mission tree', all.filter(t => !ABT.has(t)), false);
+  } else if (mode === 'religion') {
+    const groups = {};
+    for (const t of all) { const r = D.tags[t].religion || ''; (groups[r] = groups[r] || []).push(t); }
+    const rels = Object.keys(groups).sort((a, b) => {
+      const A = D.religions[a], B = D.religions[b];
+      if (!A || !B) return !A - !B;  // unknown religion last
+      return A.gname.localeCompare(B.gname) || A.name.localeCompare(B.name);
+    });
+    let lastG = null;
+    for (const r of rels) {
+      const R = D.religions[r] || { name: r || 'Unknown', gname: 'Other' };
+      if (R.gname !== lastG) { html += `<p class="grp">${esc(R.gname)}</p>`; lastG = R.gname; }
+      html += section('r-' + r, R.name, groups[r], false, relIcon(r, 20));
+    }
+  } else {
+    const groups = {};
+    for (const t of all) { const c = D.tags[t].culture, g = (D.cultures[c] || {}).group || ''; (groups[g] = groups[g] || []).push(t); }
+    const gs = Object.keys(groups).sort((a, b) => !a - !b || (D.cgroups[a] || a).localeCompare(D.cgroups[b] || b));
+    for (const g of gs) {
+      const sample = groups[g][0], col = (D.cultures[D.tags[sample].culture] || {}).color;
+      html += section('c-' + g, D.cgroups[g] || g || 'Unknown', groups[g], false, col ? `<i class="sw" style="background:${css(col)};margin:0"></i>` : '');
+    }
+  }
+  panel.innerHTML = html || '<p class="empty">No countries match.</p>';
+  if (mode === 'actum') {
+    $('apply').onclick = () => { DED = new Set(parseTags($('ed').value)); save(); paint(); renderList(); };
+    $('revert').onclick = () => { DED = new Set(D.dedicated); try { localStorage.removeItem(KEY); } catch (e) {} paint(); renderList(); };
+  }
+}
+panel.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.sec && !$('q').value.trim()) openState[d.dataset.sec] = d.open; }, true);
+
+// ---------------------------------------------------------------- side panel: country detail
+function select(t, focus = true) {
+  selected = t; paint(); renderShields();
+  $('back').hidden = !t;
+  if (!t) { hideTip(); return renderList(); }
+  if (focus) focusTag(t);
+  renderDetail();
+}
+function refreshPanel() { selected ? renderDetail() : renderList(); }
+function renderDetail() {
+  const t = selected, x = D.tags[t] || {};
+  const cul = D.cultures[x.culture] || {}, rel = D.religions[x.religion] || {};
+  const st = actumState(t);
+  const status = mode === 'actum' ? (st === 2 ? '<span class="chip d">Dedicated mission tree</span>' : st === 1 ? '<span class="chip d">Additional content</span>' : '')
+    : mode === 'ante-bellum' && ABT.has(t) ? '<span class="chip d">Ante Bellum mission tree</span>' : '';
+  const useAB = mode === 'ante-bellum';
+  const list = (useAB ? x.ab : x.aba) || [];
+  const key = 'd-' + t;
+  panel.innerHTML = `
+    <div class="dhead">${flag(t, 56)}<div style="min-width:0">
+      <div class="dname"><h2>${esc(tagName(t))}</h2>${relIcon(x.religion, 26)}</div>
+      <span class="tagcode">${t}</span></div></div>
+    <div class="chips">${status}
+      ${x.culture ? `<span class="chip">${esc(cul.name || x.culture)}</span>` : ''}
+      ${x.religion ? `<span class="chip">${esc(rel.name || x.religion)}</span>` : ''}
+      <span class="chip">${x.provs || 0} provinces</span><span class="chip">${fmt(x.dev || 0)} development</span></div>
+    <details data-sec="lore"${openState.lore ?? true ? ' open' : ''} style="margin-top:12px"><summary><span>Lore</span></summary><div class="body">
+      ${x.lore ? `<p class="lore">${esc(x.lore)}</p>` : '<p class="empty">No lore text for this country in the game files.</p>'}</div></details>
+    <details data-sec="tree"${openState.tree ?? true ? ' open' : ''}><summary><span>Mission tree</span><span class="cnt">${list.length ? list.reduce((n, i) => n + D.series[i].missions.length, 0) + ' missions' : ''}</span></summary><div class="body">
+      <p class="src">${useAB ? 'As in Ante Bellum' : `As in ${esc(D.title)}`}${list.length ? ' · hover a mission for details' : ''}</p>
+      ${list.length ? `<div class="tree" id="tree"></div>` : '<p class="empty">No mission tree. This country uses the generic missions.</p>'}</div></details>`;
+  panel.scrollTop = 0;
+  if (list.length) renderTree(list);
+}
+
+// mission tree: five slot columns; series in one slot that overlap become switchable branches
+let treeState = {};
+function treeLayout(list) {
+  const slots = {};
+  for (const i of list) { const s = D.series[i]; (slots[s.slot] = slots[s.slot] || []).push(i); }
+  const out = {};
+  for (const k of Object.keys(slots)) {
+    const layers = [];
+    for (const i of slots[k]) {
+      const pos = new Set(D.series[i].missions.map(m => m.pos));
+      let L = layers.find(l => !l.pos.some(p => pos.has(p)));
+      if (!L) layers.push(L = { pos: [], series: [] });
+      L.series.push(i); L.pos.push(...pos);
+    }
+    out[k] = layers;
+  }
+  return out;
+}
+function renderTree(list) {
+  const lay = treeLayout(list), slots = Object.keys(lay).map(Number).sort((a, b) => a - b);
+  const pick = s => Math.min(treeState[s] || 0, lay[s].length - 1);
+  let maxPos = 1;
+  const cells = [], byId = {};
+  slots.forEach((s, ci) => {
+    for (const i of lay[s][pick(s)].series) for (const m of D.series[i].missions) {
+      byId[m.id] = m; maxPos = Math.max(maxPos, m.pos); cells.push({ m, col: ci + 1, row: m.pos + 1, series: D.series[i] });
+    }
+  });
+  const heads = slots.map((s, ci) => {
+    const L = lay[s];
+    const tabs = L.length > 1 ? L.map((l, k) => `<button data-slot="${s}" data-v="${k}" aria-pressed="${k === pick(s)}" title="${esc(l.series.map(i => D.series[i].name).join(', '))}">${String.fromCharCode(65 + k)}</button>`).join('') : '';
+    return `<div class="slot-h" style="grid-column:${ci + 1};grid-row:1"><span class="lbl">Slot ${s || '?'}</span>${tabs}</div>`;
+  }).join('');
+  const body = cells.map(({ m, col, row }) => {
+    const ic = sprite('msnIcons', m.icon, 40, 'mi') || '<span class="mi"></span>';
+    return `<div class="card" tabindex="0" data-m="${esc(m.id)}" style="grid-column:${col};grid-row:${row}">${ic}<span class="mt">${esc(m.title)}</span></div>`;
+  }).join('');
+  const el = $('tree');
+  el.innerHTML = `<div class="tgrid" style="--cols:${slots.length};grid-template-rows:auto repeat(${maxPos}, auto)">${heads}${body}</div>`;
+  el._missions = byId;
+  el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { treeState[b.dataset.slot] = +b.dataset.v; renderTree(list); });
+}
+const tip = $('tip');
+function hideTip() { tip.hidden = true; document.querySelectorAll('.card.req, .card.cur').forEach(c => c.classList.remove('req', 'cur')); }
+function showTip(card) {
+  const tree = $('tree'); if (!tree) return;
+  const m = tree._missions[card.dataset.m]; if (!m) return;
+  hideTip();
+  card.classList.add('cur');
+  for (const r of m.req) { const c = tree.querySelector(`.card[data-m="${CSS.escape(r)}"]`); if (c) c.classList.add('req'); }
+  const reqNames = m.req.map(r => tree._missions[r] ? tree._missions[r].title : r);
+  tip.innerHTML = `<b>${esc(m.title)}</b>${esc(m.desc || '')}${reqNames.length ? `<div class="r">Requires: ${esc(reqNames.join(', '))}</div>` : ''}`;
+  tip.hidden = false;
+  const r = card.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+  let left = r.left - tw - 8; if (left < 8) left = Math.min(innerWidth - tw - 8, r.right + 8);
+  tip.style.left = Math.max(8, left) + 'px';
+  tip.style.top = Math.max(8, Math.min(innerHeight - th - 8, r.top)) + 'px';
+}
+panel.addEventListener('pointerover', e => { const c = e.target.closest('.card'); if (c) showTip(c); });
+panel.addEventListener('pointerout', e => { const c = e.target.closest('.card'); if (c && !c.contains(e.relatedTarget)) hideTip(); });
+panel.addEventListener('focusin', e => { const c = e.target.closest('.card'); if (c) showTip(c); });
+panel.addEventListener('focusout', e => { if (e.target.closest('.card')) hideTip(); });
+panel.addEventListener('scroll', hideTip);
+
+panel.addEventListener('click', e => { if (e.target.closest('summary')) return; const r = e.target.closest('.row[data-tag]'); if (r) select(r.dataset.tag); });
+panel.addEventListener('keydown', e => { const r = e.target.closest('.row[data-tag]'); if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(r.dataset.tag); } });
+$('q').addEventListener('input', () => { if (selected) { selected = null; $('back').hidden = true; paint(); renderShields(); } renderList(); });
+$('back').onclick = () => select(null);
+
+// re-tint when the theme changes
+const retheme = () => { seaCss = ''; paint(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', retheme);
+new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+const fromHash = () => { const h = location.hash.slice(1); if (MODES.some(m => m.id === h)) setMode(h); };
+addEventListener('hashchange', fromHash);
+renderModes(); renderShields(); resize(); renderList(); fromHash();
+</script>

@@ -1,0 +1,4 @@
+# Suggested countries, shown as shields at the bottom of the map, in this order.
+# Separate with spaces, commas or new lines. Lines starting with # are ignored.
+
+NCI CAP

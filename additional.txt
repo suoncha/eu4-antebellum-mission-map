@@ -1,0 +1,3 @@
+# Tags with new content in Ante Bellum: Actum (events, reforms, decisions, ...) but no new mission tree.
+# Drawn striped on the map. Separate with spaces, commas or new lines. Lines starting with # are ignored.
+
