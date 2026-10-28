@@ -29,7 +29,7 @@ TAGS_FILE = 'tags.txt'              # tags with a dedicated mission tree in Actu
 ADDITIONAL_FILE = 'additional.txt'  # tags with other new content but no new tree
 FAVORITES_FILE = 'favorites.txt'    # tags shown as shields at the bottom of the map
 
-OUTPUT = 'mission_map.html'
+OUTPUT = 'index.html'
 TITLE = 'Ante Bellum: Actum'
 SUBTITLE = 'Mission Map'
 SCALE = 2                           # map downscale factor; 1 = full resolution (about 4x file size)
