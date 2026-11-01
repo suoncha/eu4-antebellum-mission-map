@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Build the Ante Bellum: Actum mission map: one standalone HTML page.
 
-Edit the settings below, fill in tags.txt / additional.txt / favorites.txt, then run:
+Edit the settings below, fill in the tag lists in country_setup/ and the colours in culture_setup/, then run:
     python build_map.py
 """
 import base64
+import colorsys
 import csv
+import fnmatch
 import io
 import json
 import os
@@ -26,9 +28,12 @@ ROOTS = [
 # The Ante Bellum: Actum mod folder (its missions, localisation and flags override ROOTS).
 MOD_ROOT = 'D:/modding/aba'
 
-TAGS_FILE = 'tags.txt'              # tags with a dedicated mission tree in Actum
-ADDITIONAL_FILE = 'additional.txt'  # tags with other new content but no new tree
-FAVORITES_FILE = 'favorites.txt'    # tags shown as shields at the bottom of the map
+SUBMOD_FILE = 'country_setup/submod.txt'          # tags with a dedicated mission tree in Actum
+ADDITIONAL_FILE = 'country_setup/additional.txt'  # tags with other new content but no new tree
+FAVORITES_FILE = 'country_setup/favorites.txt'    # tags shown as shields at the bottom of the map
+AB_FILE = 'country_setup/ab.txt'                  # tags with an Ante Bellum tree, optionally mapped to files
+AB_MISSION_FILES = 'AB_*.txt'                     # mission files (in ROOTS) that hold Ante Bellum trees
+CULTURE_COLORS_FILE = 'culture_setup/culture.txt' # base colour per culture group; written if missing
 
 OUTPUT = 'index.html'
 TITLE = 'Ante Bellum'
@@ -475,29 +480,33 @@ def ev(k, v, c):
     return U
 
 
-def identity_hits(items, c):
-    """True if some identity condition outside a NOT holds for this country."""
-    for k, v in items:
-        kl = k.lower()
-        if isinstance(v, list):
-            if kl in ('and', 'or') and identity_hits(v, c):
-                return True
-        elif kl in IDENTITY_KEYS and ev(k, v, c) is True:
-            return True
-    return False
-
-
-def explicit_tags(items):
-    """Tags named outside a NOT via tag / was_tag."""
+def identity_leaves(items):
+    """{(key, value)} of the identity conditions outside a NOT, for matching against identity_facts()."""
     out = set()
     for k, v in items:
         kl = k.lower()
         if isinstance(v, list):
             if kl in ('and', 'or'):
-                out |= explicit_tags(v)
-        elif kl in ('tag', 'was_tag') and TAG_RE.fullmatch(v):
-            out.add(v)
+                out |= identity_leaves(v)
+        elif kl in IDENTITY_KEYS and v is not None:
+            out.add((kl, v))
     return out
+
+
+def identity_facts(c):
+    """{(key, value)} that are True for this country: the identity conditions ev() would answer True."""
+    st = c.st
+    facts = {('tag', c.tag), ('was_tag', c.tag)}
+    facts |= {(k, st[k]) for k in ('primary_culture', 'religion', 'technology_group', 'government', 'capital')
+              if st.get(k)}
+    facts |= {('has_reform', r) for r in st.get('reforms', ())}
+    group = c.cg.get(st.get('primary_culture'))
+    rgroup = c.rel.get(st.get('religion'), {}).get('group')
+    if group:
+        facts.add(('culture_group', group))
+    if rgroup:
+        facts.add(('religion_group', rgroup))
+    return facts
 
 
 def load_series(L):
@@ -521,20 +530,15 @@ def load_series(L):
             slot = get(body, 'slot')
             series.append({'name': name, 'file': os.path.basename(fn),
                            'slot': int(slot) if slot and slot.isdigit() else 0,
-                           'potential': pot, 'tags': explicit_tags(pot), 'missions': missions})
+                           'potential': pot, 'ids': identity_leaves(pot), 'missions': missions})
     return series
 
 
-def series_for(tag, series, ctx):
-    """Indexes of the series a tag gets at start, plus whether any names it explicitly."""
-    out, named = [], False
-    for i, s in enumerate(series):
-        is_named = tag in s['tags']
-        # cheap identity check first; the full potential only has to not be False
-        if (is_named or identity_hits(s['potential'], ctx)) and ev_block(s['potential'], ctx) is not False:
-            out.append(i)
-            named = named or is_named
-    return out, named
+def series_for(series, ctx, facts):
+    """Indexes of the series a country gets at start: one of its identity conditions holds
+    (facts = identity_facts(ctx)) and the whole potential isn't False."""
+    return [i for i, s in enumerate(series)
+            if s['ids'] & facts and ev_block(s['potential'], ctx) is not False]
 
 
 # ---------------------------------------------------------------- images
@@ -657,9 +661,56 @@ def read_tags(path):
     return tags
 
 
+def read_tag_map(path):
+    """{TAG: [mission files] or None}, one tag per line, optionally 'TAG = file file ...'. Missing file = empty."""
+    out = {}
+    if not os.path.isfile(path):
+        return out
+    for line in open(path, encoding='utf-8-sig'):
+        tag, eq, files = line.split('#')[0].partition('=')
+        tag = tag.strip().upper()
+        if tag:
+            out[tag] = files.split() if eq else None
+    return out
+
+
 def hsl(h, s, l):
-    import colorsys
     return [int(x * 255) for x in colorsys.hls_to_rgb(h % 1, l, s)]
+
+
+def group_base_color(group):
+    """Generated base colour of a culture group, used when culture.txt doesn't list it."""
+    return hsl(name_hash(group) % 360 / 360, 0.57, 0.52)
+
+
+def culture_color(base, culture):
+    """A culture's colour: a small, stable variation of its group's base colour."""
+    h, l, s = colorsys.rgb_to_hls(*(x / 255 for x in base))
+    hc = name_hash(culture)
+    clamp = lambda x: min(0.95, max(0.05, x))
+    return hsl(h + ((hc % 21) - 10) / 360, clamp(s + ((hc >> 8) % 25 - 12) / 100), clamp(l + ((hc >> 16) % 22 - 11) / 100))
+
+
+def read_culture_colors(path):
+    """{group: [r, g, b]} from lines like 'iranian = 196 92 140'; '#' starts a comment."""
+    out = {}
+    for line in open(path, encoding='utf-8-sig'):
+        m = re.match(r'\s*([^\s=#]+)\s*=\s*(\d+)\s+(\d+)\s+(\d+)', line.split('#')[0])
+        if m:
+            out[m.group(1)] = [min(255, int(x)) for x in m.groups()[1:]]
+    return out
+
+
+def write_culture_colors(path, groups, names):
+    lines = ['# Base colour of each culture group in the Culture map mode, as R G B (0-255).',
+             '# Every culture gets a small variation of its group\'s colour. Groups not listed get a generated colour.',
+             '# This file was generated with the current colours; edit it freely, the build never overwrites it.', '']
+    for g in groups:
+        entry = '{} = {} {} {}'.format(g, *group_base_color(g))
+        lines.append(f'{entry:<44}# {names.get(g, g)}')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
 
 
 def name_hash(s):
@@ -680,9 +731,10 @@ def main():
     full_roots = roots + ([mod] if os.path.isdir(mod) else [])
     L, Lab = Layers(full_roots), Layers(roots)
 
-    dedicated = read_tags(here(TAGS_FILE))
+    dedicated = read_tags(here(SUBMOD_FILE))
     additional = [t for t in read_tags(here(ADDITIONAL_FILE)) if t not in dedicated]
     favorites = read_tags(here(FAVORITES_FILE))
+    ab_map = read_tag_map(here(AB_FILE))
 
     print('reading game files...', file=sys.stderr)
     loc = load_localisation(L)
@@ -699,7 +751,10 @@ def main():
 
     print('reading mission trees...', file=sys.stderr)
     series_aba = load_series(L)
-    series_ab = load_series(Lab)
+    series_ab = [s for s in load_series(Lab) if fnmatch.fnmatch(s['file'].lower(), AB_MISSION_FILES.lower())]
+    ab_by_file = {}
+    for i, s in enumerate(series_ab):
+        ab_by_file.setdefault(s['file'].lower(), []).append(i)
 
     owners = {pid: st['owner'] for pid, st in prov.items()}
     alive = sorted({o for o in owners.values() if o})
@@ -723,22 +778,37 @@ def main():
             })
         return sid[key]
 
-    tags, ab_tree = {}, []
+    # Ante Bellum trees only for the tags in ab.txt: their mapped files, or else the AB series they match
+    alive_set = set(alive)
+    ab_tree = [t for t in ab_map if t in alive_set]
+    ab_bad_files = sorted({f for fs in ab_map.values() if fs for f in fs if f.lower() not in ab_by_file})
+    ab_no_tree = []
+
+    lore_list, lore_idx = [], {}  # distinct lore texts; many tags share a regional one
+    tags = {}
     for t in alive:
         st = hist.get(t, {})
         ctx = Ctx(t, st, cgroups, religions, geo)
-        aba_idx, _ = series_for(t, series_aba, ctx)
-        ab_idx, ab_named = series_for(t, series_ab, ctx)
-        if ab_named:
-            ab_tree.append(t)
+        facts = identity_facts(ctx)
+        aba_idx = series_for(series_aba, ctx, facts)
+        ab_idx = []
+        if t in ab_map:
+            files = ab_map[t]
+            ab_idx = ([i for f in files for i in ab_by_file.get(f.lower(), [])] if files
+                      else series_for(series_ab, ctx, facts))
+            if not ab_idx:
+                ab_no_tree.append(t)
         name = clean_loc(loc.get(t)) or t
         lore_key = next((k for k, trig in lore_texts if ev_block(trig, ctx) is True), None)
         lore = clean_loc(fill_placeholders(loc.get(lore_key), t, st, name, loc))
+        if lore not in lore_idx:
+            lore_idx[lore] = len(lore_list)
+            lore_list.append(lore)
         tags[t] = {
             'name': name,
             'color': colors.get(t),
             'culture': st.get('primary_culture'), 'religion': st.get('religion'),
-            'provs': provs.get(t, 0), 'dev': dev.get(t, 0), 'lore': lore,
+            'provs': provs.get(t, 0), 'dev': dev.get(t, 0), 'lore': lore_idx[lore],
             'aba': [keep(series_aba[i]) for i in aba_idx],
             'ab': [keep(series_ab[i]) for i in ab_idx],
         }
@@ -766,14 +836,18 @@ def main():
     used_rel = {r for r in p_rel if r} | {t['religion'] for t in tags.values() if t['religion']}
     used_groups = {cgroups[c] for c in used_cul if c in cgroups}
     group_cultures = {g: cmembers.get(g, []) for g in corder if g in used_groups}
+    grp_out = {g: clean_loc(loc.get(g)) or g.replace('_', ' ').title() for g in corder}
+    colors_path = here(CULTURE_COLORS_FILE)
+    if not os.path.isfile(colors_path):
+        write_culture_colors(colors_path, corder, grp_out)
+        print(f'wrote {colors_path} with the current culture group colours', file=sys.stderr)
+    group_colors = read_culture_colors(colors_path)
+    unlisted_groups = sorted(g for g in used_groups if g not in group_colors)
     cul_out = {}
     for c in sorted(used_cul | {c for cs in group_cultures.values() for c in cs}):
         g = cgroups.get(c, '')
-        hg, hc = name_hash(g or c), name_hash(c)
-        cul_out[c] = {'name': clean_loc(loc.get(c)) or c, 'group': g,
-                      'color': hsl((hg % 360) / 360 + ((hc % 21) - 10) / 360, 0.45 + (hc >> 8) % 25 / 100,
-                                   0.42 + (hc >> 16) % 22 / 100)}
-    grp_out = {g: clean_loc(loc.get(g)) or g.replace('_', ' ').title() for g in corder}
+        base = group_colors.get(g) or group_base_color(g or c)
+        cul_out[c] = {'name': clean_loc(loc.get(c)) or c, 'group': g, 'color': culture_color(base, c)}
     rel_out = {}
     for r in sorted(used_rel):
         info = religions.get(r, {})
@@ -830,7 +904,7 @@ def main():
         'img': png_b64(ids),
         'owner': p_owner, 'kind': p_kind, 'pcul': p_cul, 'prel': p_rel,
         'pname': [clean_loc(loc.get(f'PROV{i}')) or pnames.get(i, '') for i in range(nprov)],
-        'tags': tags, 'series': out_series,
+        'tags': tags, 'lore': lore_list, 'series': out_series,
         'cultures': cul_out, 'cgroups': grp_out, 'groupCultures': group_cultures, 'religions': rel_out,
         'dedicated': dedicated, 'additional': additional, 'favorites': favorites, 'abTree': ab_tree,
         'flags': {'uri': flags_uri, 'idx': flag_idx, 'cols': flag_cols},
@@ -854,13 +928,23 @@ def main():
     print(f'wrote {out} ({os.path.getsize(out) // 1024} KB): {len(alive)} tags, {len(dedicated)} dedicated, '
           f'{len(additional)} additional content, {len(ab_tree)} with an Ante Bellum tree, '
           f'{len(flag_idx)} flags, {len(rel_idx)} religion icons, {len(icon_idx)} mission icons, '
-          f'{sum(1 for t in tags.values() if t["lore"])} with lore', file=sys.stderr)
-    report('tags.txt', dedicated)
+          f'{sum(1 for t in tags.values() if lore_list[t["lore"]])} with lore', file=sys.stderr)
+    report('submod.txt', dedicated)
     report('additional.txt', additional)
     report('favorites.txt', favorites)
-    nh = sum(1 for k in p_kind if k == 4)
+    report('ab.txt', list(ab_map))
+    if ab_bad_files:
+        print(f'  ab.txt: no such {AB_MISSION_FILES} mission file: {" ".join(ab_bad_files)}', file=sys.stderr)
+    if ab_no_tree:
+        print(f'  ab.txt: no Ante Bellum tree found for: {" ".join(ab_no_tree)} '
+              f'(map them yourself with "TAG = file.txt")', file=sys.stderr)
+    if unlisted_groups:
+        print(f'  culture.txt: no colour for these groups (generated instead): {" ".join(unlisted_groups)}',
+              file=sys.stderr)
+    on_map = set(np.unique(ids).tolist())  # skips UnusedLand / RNW placeholder ids, which are never drawn
+    nh = sum(1 for pid, k in enumerate(p_kind) if k == 4 and pid in on_map)
     if nh:
-        print(f'  {nh} province ids have no history file (shown as "no data")', file=sys.stderr)
+        print(f'  {nh} provinces on the map have no history file (shown as "no data")', file=sys.stderr)
 
 
 if __name__ == '__main__':

@@ -509,7 +509,7 @@ function renderDetail() {
       ${x.religion ? `<span class="chip">${esc(rel.name || x.religion)}</span>` : ''}
       <span class="chip">${x.provs || 0} provinces</span><span class="chip">${fmt(x.dev || 0)} development</span></div>
     <details data-sec="lore"${openState.lore ?? true ? ' open' : ''} style="margin-top:12px"><summary><span>Lore</span></summary><div class="body">
-      ${x.lore ? `<p class="lore">${esc(x.lore)}</p>` : '<p class="empty">No lore text for this country in the game files.</p>'}</div></details>
+      ${D.lore[x.lore] ? `<p class="lore">${esc(D.lore[x.lore])}</p>` : '<p class="empty">No lore text for this country in the game files.</p>'}</div></details>
     ${extra}`;
   panel.scrollTop = 0;
   if (showTree && list.length) renderTree(list);

@@ -1,4 +1,4 @@
-# Tags with a dedicated mission tree. Separate with spaces, commas or new lines.
+# Submod (Ante Bellum: Actum) tags with a dedicated mission tree. Separate with spaces, commas or new lines.
 # Lines starting with # are ignored.
 
 DAN NOR SWE SCO
