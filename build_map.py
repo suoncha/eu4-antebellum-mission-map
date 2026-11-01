@@ -9,6 +9,7 @@ import csv
 import io
 import json
 import os
+import pickle
 import re
 import sys
 import numpy as np
@@ -30,18 +31,20 @@ ADDITIONAL_FILE = 'additional.txt'  # tags with other new content but no new tre
 FAVORITES_FILE = 'favorites.txt'    # tags shown as shields at the bottom of the map
 
 OUTPUT = 'index.html'
-TITLE = 'Ante Bellum: Actum'
+TITLE = 'Ante Bellum'
 SUBTITLE = 'Mission Map'
-SCALE = 2                           # map downscale factor; 1 = full resolution (about 4x file size)
+SCALE = 1                           # map downscale factor; 1 = full resolution (about 4x file size)
+CACHE_DIR = '.cache'                # parsed game files and resized images; delete it to force a full rebuild
 
-# Localisation keys tried, in order, for each tag's lore text. {TAG} is replaced by the tag.
-LORE_KEYS = ['{TAG}_lore', '{TAG}_LORE', '{TAG}_history', '{TAG}_HISTORY']
+# defined_text in customizable_localization/ that picks each country's start-screen lore.
+LORE_DEFINED_TEXT = 'AnteBellumCountryLoreDesc'
 
 START_DATE = (1444, 11, 11)
 
 # ---------------------------------------------------------------- parsing
 
 TOKEN_RE = re.compile(r'"[^"]*"|[{}]|[<>]=?|!=|==|=|[^\s{}=<>"#]+|#[^\n]*')
+TAG_RE = re.compile(r'[A-Z0-9]{3}')
 
 
 def read_text(path):
@@ -83,6 +86,46 @@ def parse(text):
         return out
 
     return block()
+
+
+# ---------------------------------------------------------------- cache
+# Pickled {key: value}, keyed by file path + mtime + size so edited files are re-read.
+
+class Cache:
+    def __init__(self, name):
+        self.path = os.path.join(here(CACHE_DIR), name)
+        self.used, self.added = set(), False
+        try:
+            with open(self.path, 'rb') as f:
+                self.data = pickle.load(f)
+        except Exception:
+            self.data = {}
+
+    @staticmethod
+    def key(path, *extra):
+        st = os.stat(path)
+        return (os.path.normcase(path), st.st_mtime_ns, st.st_size) + extra
+
+    def get(self, key, make):
+        self.used.add(key)
+        if key not in self.data:
+            self.data[key] = make()
+            self.added = True
+        return self.data[key]
+
+    def save(self):
+        """Write back only the entries used in this run, dropping those of changed or deleted files."""
+        if self.added or self.used != set(self.data):
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(self.path, 'wb') as f:
+                pickle.dump({k: self.data[k] for k in self.used}, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+PARSED = None  # Cache of parsed script files, set up in main()
+
+
+def parse_file(path):
+    return PARSED.get(Cache.key(path), lambda: parse(read_text(path)))
 
 
 def get(items, key, default=None):
@@ -163,8 +206,8 @@ def clean_loc(s):
 def load_tag_colors(L, loc):
     tag_files = {}
     for _, p in L.files('common/country_tags').items():
-        for k, v in parse(read_text(p)):
-            if isinstance(v, str) and re.fullmatch(r'[A-Z0-9]{3}', k):
+        for k, v in parse_file(p):
+            if isinstance(v, str) and TAG_RE.fullmatch(k):
                 tag_files[k] = v
     lower = {k.lower(): v for k, v in L.files('common/countries').items()}
     colors = {}
@@ -175,7 +218,7 @@ def load_tag_colors(L, loc):
         if p is None and tag in loc:  # tags missing from the tag list: guess the file by name
             p = lower.get(re.sub(r'[^\w ]', '', loc[tag]).lower() + '.txt')
         if p:
-            c = get(parse(read_text(p)), 'color')
+            c = get(parse_file(p), 'color')
             if isinstance(c, list):
                 try:
                     colors[tag] = [int(float(k)) for k, _ in c][:3]
@@ -191,9 +234,11 @@ def load_country_history(L):
         if not m:
             continue
         st = {'reforms': set()}
-        for k, v in history_at(parse(read_text(p))):
+        for k, v in history_at(parse_file(p)):
             if k == 'add_government_reform':
                 st['reforms'].add(v)
+            elif k == 'monarch' and isinstance(v, list):
+                st['dynasty'] = get(v, 'dynasty', st.get('dynasty'))
             elif isinstance(v, str):
                 st[k] = v
         out[m.group(1)] = st
@@ -207,7 +252,7 @@ def load_province_history(L):
         if not m:
             continue
         st = {'owner': None, 'dev': 0}
-        for k, v in history_at(parse(read_text(p))):
+        for k, v in history_at(parse_file(p)):
             if k in ('owner', 'culture', 'religion'):
                 st[k] = v
             elif k in ('base_tax', 'base_production', 'base_manpower'):
@@ -225,25 +270,29 @@ NAME_LISTS = {'male_names', 'female_names', 'dynasty_names', 'country', 'provinc
 
 
 def load_cultures(L):
-    """{culture: group} and [group, ...] in file order."""
-    groups, order = {}, []
+    """{culture: group}, [group, ...] and {group: [culture, ...]}, all in file order."""
+    groups, order, members = {}, [], {}
     for _, p in L.files('common/cultures').items():
-        for g, body in parse(read_text(p)):
+        for g, body in parse_file(p):
             if not isinstance(body, list):
                 continue
             if g not in order:
                 order.append(g)
             for k, v in body:
                 if isinstance(v, list) and k not in NAME_LISTS:
+                    if groups.get(k) != g:
+                        members.setdefault(g, []).append(k)
                     groups[k] = g
-    return groups, order
+    for g, cs in members.items():  # a culture redefined in a later file belongs to its last group only
+        members[g] = [c for c in dict.fromkeys(cs) if groups[c] == g]
+    return groups, order, members
 
 
 def load_religions(L):
     """{religion: {group, color, icon}} in file order."""
     out = {}
     for _, p in L.files('common/religions').items():
-        for g, body in parse(read_text(p)):
+        for g, body in parse_file(p):
             if not isinstance(body, list):
                 continue
             for k, v in body:
@@ -275,34 +324,112 @@ def load_sprites(L):
     return out
 
 
+def load_geography(L):
+    """{province: {'area', 'region', 'superregion', 'continent'}} from map/*.txt."""
+    def members(items):
+        return [k for k, v in items if v is None]
+
+    def blocks(rel):
+        p = L.file(rel)
+        return [(k, v) for k, v in parse_file(p) if isinstance(v, list)] if p else []
+
+    region_of = {}
+    for r, body in blocks('map/region.txt'):
+        for a in members(get(body, 'areas') or []):
+            region_of[a] = r
+    super_of = {r: s for s, body in blocks('map/superregion.txt') for r in members(body)}
+    geo = {}
+    for a, body in blocks('map/area.txt'):
+        for pid in members(body):
+            if pid.isdigit():
+                r = region_of.get(a)
+                geo[int(pid)] = {'area': a, 'region': r, 'superregion': super_of.get(r)}
+    for c, body in blocks('map/continent.txt'):
+        for pid in members(body):
+            if pid.isdigit():
+                geo.setdefault(int(pid), {})['continent'] = c
+    return geo
+
+
+def load_defined_text(L, name):
+    """[(localisation key, trigger items), ...] of the named defined_text in customizable_localization/."""
+    for _, p in L.files('customizable_localization').items():
+        for k, body in parse_file(p):
+            if k == 'defined_text' and isinstance(body, list) and get(body, 'name') == name:
+                return [(get(t, 'localisation_key'), get(t, 'trigger') or [])
+                        for k2, t in body if k2 == 'text' and isinstance(t, list)]
+    return []
+
+
+# [Root.GovernmentName] really comes from scripted government names; this approximates it by type and rank.
+GOV_NAMES = {'monarchy': {'1': 'Duchy', '2': 'Kingdom', '3': 'Empire'}, 'republic': 'Republic',
+             'theocracy': 'Theocracy', 'tribal': 'Tribe', 'native': 'Tribe'}
+
+
+def fill_placeholders(s, tag, st, name, loc):
+    """Replace the [..] placeholders that start-screen lore uses with the country's 1444 values."""
+    gov = GOV_NAMES.get(st.get('government'), 'Realm')
+    if isinstance(gov, dict):
+        gov = gov.get(st.get('government_rank'), 'Kingdom')
+    subs = {'GetYear': str(START_DATE[0]), 'Root.GetName': name, 'Root.GovernmentName': gov,
+            'Root.GetAdjective': clean_loc(loc.get(tag + '_ADJ')) or name,
+            'Root.Monarch.Dynasty.GetName': st.get('dynasty') or name}
+    return re.sub(r'\[([^\]]+)\]', lambda m: subs.get(m.group(1), m.group(0)), s or '')
+
+
 # ---------------------------------------------------------------- missions
 
 class Ctx:
-    def __init__(self, tag, st, cgroups, religions):
-        self.tag, self.st, self.cg, self.rel = tag, st, cgroups, religions
+    def __init__(self, tag, st, cgroups, religions, geo=None):
+        self.tag, self.st, self.cg, self.rel, self.geo = tag, st, cgroups, religions, geo or {}
 
 
 U = None  # unknown in three-valued logic
 IDENTITY_KEYS = {'tag', 'was_tag', 'primary_culture', 'culture_group', 'religion', 'religion_group',
                  'technology_group', 'government', 'has_reform', 'capital'}
+GEO_KEYS = {'area', 'region', 'superregion', 'continent'}
 
 
 def tv_and(vals):
-    vals = list(vals)
-    if any(v is False for v in vals):
-        return False
-    return True if all(v is True for v in vals) else U
+    all_true = True
+    for v in vals:
+        if v is False:
+            return False
+        all_true = all_true and v is True
+    return True if all_true else U
 
 
 def tv_or(vals):
-    vals = list(vals)
-    if any(v is True for v in vals):
-        return True
-    return False if vals and all(v is False for v in vals) else U
+    seen = unknown = False
+    for v in vals:
+        if v is True:
+            return True
+        seen = True
+        unknown = unknown or v is not False
+    return U if unknown or not seen else False
 
 
 def ev_block(items, c):
     return tv_and(ev(k, v, c) for k, v in items)
+
+
+def ev_province(items, pid, geo):
+    """Evaluate a province-scope block (capital_scope) against geography. Unknown triggers give U."""
+    def one(k, v):
+        kl = k.lower()
+        if isinstance(v, list):
+            if kl == 'and':
+                return ev_province(v, pid, geo)
+            if kl in ('or', 'not'):
+                r = tv_or(one(a, b) for a, b in v)
+                return r if kl == 'or' or r is U else not r
+            return U
+        if kl in GEO_KEYS:
+            return geo.get(pid, {}).get(kl) == v
+        if kl == 'province_id' and v.isdigit():
+            return pid == int(v)
+        return U
+    return tv_and(one(k, v) for k, v in items)
 
 
 def ev(k, v, c):
@@ -316,14 +443,21 @@ def ev(k, v, c):
         if kl == 'not':
             r = tv_or(ev(a, b, c) for a, b in v)
             return U if r is U else not r
+        if kl == 'capital_scope':
+            cap = c.st.get('capital')
+            return ev_province(v, int(cap), c.geo) if cap and cap.isdigit() and c.geo else U
         return U
+    if kl == 'always':
+        return {'yes': True, 'no': False}.get(v, U)
+    if kl == 'is_random_new_world':  # historical map only
+        return {'yes': False, 'no': True}.get(v, U)
     st = c.st
     if kl in ('tag', 'was_tag'):
-        return v == c.tag if re.fullmatch(r'[A-Z0-9]{3}', v) else U
+        return v == c.tag if TAG_RE.fullmatch(v) else U
     if kl == 'primary_culture':
         return st.get('primary_culture') == v
     if kl == 'culture_group':
-        return U if re.fullmatch(r'[A-Z0-9]{3}', v) else c.cg.get(st.get('primary_culture')) == v
+        return U if TAG_RE.fullmatch(v) else c.cg.get(st.get('primary_culture')) == v
     if kl == 'religion':
         return st.get('religion') == v
     if kl == 'religion_group':
@@ -361,7 +495,7 @@ def explicit_tags(items):
         if isinstance(v, list):
             if kl in ('and', 'or'):
                 out |= explicit_tags(v)
-        elif kl in ('tag', 'was_tag') and re.fullmatch(r'[A-Z0-9]{3}', v):
+        elif kl in ('tag', 'was_tag') and TAG_RE.fullmatch(v):
             out.add(v)
     return out
 
@@ -369,7 +503,7 @@ def explicit_tags(items):
 def load_series(L):
     series = []
     for fn, p in L.files('missions').items():
-        for name, body in parse(read_text(p)):
+        for name, body in parse_file(p):
             if not isinstance(body, list) or get(body, 'generic') == 'yes':
                 continue
             missions, last = [], 0
@@ -395,13 +529,11 @@ def series_for(tag, series, ctx):
     """Indexes of the series a tag gets at start, plus whether any names it explicitly."""
     out, named = [], False
     for i, s in enumerate(series):
-        if ev_block(s['potential'], ctx) is False:
-            continue
-        if tag in s['tags']:
+        is_named = tag in s['tags']
+        # cheap identity check first; the full potential only has to not be False
+        if (is_named or identity_hits(s['potential'], ctx)) and ev_block(s['potential'], ctx) is not False:
             out.append(i)
-            named = True
-        elif identity_hits(s['potential'], ctx):
-            out.append(i)
+            named = named or is_named
     return out, named
 
 
@@ -436,13 +568,37 @@ def png_b64(ids):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def open_image(path):
-    try:
-        im = Image.open(path)
-        im.load()
-        return im.convert('RGBA')
-    except Exception:
-        return None
+IMAGES = None  # Cache of resized images as PNG bytes, set up in main()
+
+
+def png_bytes(im):
+    buf = io.BytesIO()
+    im.save(buf, 'PNG')
+    return buf.getvalue()
+
+
+def from_png(data):
+    return Image.open(io.BytesIO(data)) if data else None
+
+
+def open_image(path, size=None, square=False):
+    """RGBA image; square crops a sprite strip to its first frame; size resizes. Cached when size is given."""
+    def make():
+        try:
+            im = Image.open(path)
+            im.load()
+            im = im.convert('RGBA')
+        except Exception:
+            return None
+        if square and im.size[0] > im.size[1] * 1.5:
+            im = im.crop((0, 0, im.size[1], im.size[1]))
+        return im.resize((size, size), Image.LANCZOS) if size else im
+
+    def make_png():
+        im = make()
+        return png_bytes(im) if im else None
+
+    return from_png(IMAGES.get(Cache.key(path, size, square), make_png)) if size else make()
 
 
 def atlas(images, size, cols=32):
@@ -453,9 +609,11 @@ def atlas(images, size, cols=32):
     rows = (len(keys) + cols - 1) // cols
     sheet = Image.new('RGBA', (cols * size, rows * size), (0, 0, 0, 0))
     for i, k in enumerate(keys):
-        sheet.paste(images[k].resize((size, size), Image.LANCZOS), ((i % cols) * size, (i // cols) * size))
+        im = images[k]
+        sheet.paste(im if im.size == (size, size) else im.resize((size, size), Image.LANCZOS),
+                    ((i % cols) * size, (i // cols) * size))
     buf = io.BytesIO()
-    sheet.save(buf, 'WEBP', quality=82, method=6)
+    sheet.save(buf, 'WEBP', quality=82, method=4)
     return 'data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode(), {k: i for i, k in enumerate(keys)}, cols
 
 
@@ -512,6 +670,8 @@ def name_hash(s):
 
 
 def main():
+    global PARSED, IMAGES
+    PARSED, IMAGES = Cache('parse.pkl'), Cache('images.pkl')
     roots = [here(r) for r in ROOTS]
     mod = here(MOD_ROOT)
     for r in roots:
@@ -529,11 +689,13 @@ def main():
     colors = load_tag_colors(L, loc)
     hist = load_country_history(L)
     prov = load_province_history(L)
-    cgroups, corder = load_cultures(L)
+    cgroups, corder, cmembers = load_cultures(L)
     religions = load_religions(L)
-    dm = parse(read_text(L.file('map/default.map')))
+    geo = load_geography(L)
+    lore_texts = load_defined_text(L, LORE_DEFINED_TEXT)
+    dm = parse_file(L.file('map/default.map'))
     water = load_ids_list(dm, 'sea_starts') | load_ids_list(dm, 'lakes')
-    wasteland = load_ids_list(parse(read_text(L.file('map/climate.txt'))), 'impassable')
+    wasteland = load_ids_list(parse_file(L.file('map/climate.txt')), 'impassable')
 
     print('reading mission trees...', file=sys.stderr)
     series_aba = load_series(L)
@@ -564,18 +726,16 @@ def main():
     tags, ab_tree = {}, []
     for t in alive:
         st = hist.get(t, {})
-        ctx = Ctx(t, st, cgroups, religions)
+        ctx = Ctx(t, st, cgroups, religions, geo)
         aba_idx, _ = series_for(t, series_aba, ctx)
         ab_idx, ab_named = series_for(t, series_ab, ctx)
         if ab_named:
             ab_tree.append(t)
-        lore = ''
-        for k in LORE_KEYS:
-            if k.replace('{TAG}', t) in loc:
-                lore = clean_loc(loc[k.replace('{TAG}', t)])
-                break
+        name = clean_loc(loc.get(t)) or t
+        lore_key = next((k for k, trig in lore_texts if ev_block(trig, ctx) is True), None)
+        lore = clean_loc(fill_placeholders(loc.get(lore_key), t, st, name, loc))
         tags[t] = {
-            'name': clean_loc(loc.get(t)) or t,
+            'name': name,
             'color': colors.get(t),
             'culture': st.get('primary_culture'), 'religion': st.get('religion'),
             'provs': provs.get(t, 0), 'dev': dev.get(t, 0), 'lore': lore,
@@ -604,8 +764,10 @@ def main():
     # cultures and religions in use, with display names and colours
     used_cul = {c for c in p_cul if c} | {t['culture'] for t in tags.values() if t['culture']}
     used_rel = {r for r in p_rel if r} | {t['religion'] for t in tags.values() if t['religion']}
+    used_groups = {cgroups[c] for c in used_cul if c in cgroups}
+    group_cultures = {g: cmembers.get(g, []) for g in corder if g in used_groups}
     cul_out = {}
-    for c in sorted(used_cul):
+    for c in sorted(used_cul | {c for cs in group_cultures.values() for c in cs}):
         g = cgroups.get(c, '')
         hg, hc = name_hash(g or c), name_hash(c)
         cul_out[c] = {'name': clean_loc(loc.get(c)) or c, 'group': g,
@@ -618,24 +780,35 @@ def main():
         g = info.get('group', '')
         rel_out[r] = {'name': clean_loc(loc.get(r)) or r, 'group': g,
                       'gname': clean_loc(loc.get(g)) or g.replace('_', ' ').title(),
-                      'color': info.get('color') or hsl(name_hash(r) % 360 / 360, 0.5, 0.5)}
+                      'color': info.get('color') or hsl(name_hash(r) % 360 / 360, 0.5, 0.5),
+                      'desc': clean_loc(loc.get(r + '_religion_desc'))}
 
     print('packing flags and icons...', file=sys.stderr)
     flag_files = find_files(full_roots, 'gfx/flags', {'.tga', '.png', '.dds'})
     want = set(alive) | set(dedicated) | set(additional) | set(favorites)
-    flags_uri, flag_idx, flag_cols = atlas({t: open_image(flag_files[t]) for t in sorted(want) if t in flag_files}, 64)
+    flags_uri, flag_idx, flag_cols = atlas({t: open_image(flag_files[t], 64) for t in sorted(want) if t in flag_files}, 64)
 
     sprites = load_sprites(L)
     strip_path = texture(full_roots, sprites.get('GFX_icon_religion', 'gfx/interface/icon_religion.dds'))
-    strip = open_image(strip_path) if strip_path else None
     rel_imgs = {}
-    if strip is not None:
-        fh = strip.size[1]
-        frames = strip.size[0] // fh
+    if strip_path:
+        strip = []  # the full strip, opened only when a frame is missing from the cache
+
+        def frame(n):
+            if not strip:
+                strip.append(open_image(strip_path))
+            im = strip[0]
+            if im is None or n > im.size[0] // im.size[1]:
+                return None
+            fh = im.size[1]
+            return png_bytes(im.crop(((n - 1) * fh, 0, n * fh, fh)).resize((48, 48), Image.LANCZOS))
+
         for r in used_rel:
             n = religions.get(r, {}).get('icon')
-            if n and 1 <= n <= frames:
-                rel_imgs[r] = strip.crop(((n - 1) * fh, 0, n * fh, fh))
+            if n and n >= 1:
+                im = from_png(IMAGES.get(Cache.key(strip_path, 'religion', n, 48), lambda: frame(n)))
+                if im is not None:
+                    rel_imgs[r] = im
     rel_uri, rel_idx, rel_cols = atlas(rel_imgs, 48)
 
     icons = {}
@@ -645,10 +818,7 @@ def main():
             if ic not in icons:
                 tp = sprites.get(ic) or sprites.get('GFX_' + ic)
                 p = texture(full_roots, tp) if tp else None
-                icons[ic] = open_image(p) if p else None
-                if icons[ic] is not None and icons[ic].size[0] > icons[ic].size[1] * 1.5:  # strip: first frame
-                    h = icons[ic].size[1]
-                    icons[ic] = icons[ic].crop((0, 0, h, h))
+                icons[ic] = open_image(p, 48, square=True) if p else None
     icon_uri, icon_idx, icon_cols = atlas(icons, 48)
     for s in out_series:
         for m in s['missions']:
@@ -661,7 +831,7 @@ def main():
         'owner': p_owner, 'kind': p_kind, 'pcul': p_cul, 'prel': p_rel,
         'pname': [clean_loc(loc.get(f'PROV{i}')) or pnames.get(i, '') for i in range(nprov)],
         'tags': tags, 'series': out_series,
-        'cultures': cul_out, 'cgroups': grp_out, 'religions': rel_out,
+        'cultures': cul_out, 'cgroups': grp_out, 'groupCultures': group_cultures, 'religions': rel_out,
         'dedicated': dedicated, 'additional': additional, 'favorites': favorites, 'abTree': ab_tree,
         'flags': {'uri': flags_uri, 'idx': flag_idx, 'cols': flag_cols},
         'relIcons': {'uri': rel_uri, 'idx': rel_idx, 'cols': rel_cols},
@@ -673,6 +843,8 @@ def main():
     out = here(OUTPUT)
     with open(out, 'w', encoding='utf-8') as f:
         f.write(html)
+    PARSED.save()
+    IMAGES.save()
 
     def report(label, lst):
         missing = [t for t in lst if t not in tags]

@@ -1,5 +1,9 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>__TITLE__ Mission Map</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -59,12 +63,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .shields { position: absolute; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 10px;
   max-width: calc(100% - 20px); overflow-x: auto; padding: 4px 6px 2px; }
 .shield { border: 0; background: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 64px; flex: none; color: var(--ink); }
-.shield .sh { width: 52px; height: 58px; border-radius: 6px 6px 50% 50% / 6px 6px 55% 55%; border: 2px solid var(--border);
-  box-shadow: 0 2px 6px rgb(0 0 0 / .35); overflow: hidden; transition: transform .12s; background: var(--land); }
-.shield .sh .flag { width: 100%; height: 100%; border: 0; border-radius: 0; }
-.shield:hover .sh, .shield:focus-visible .sh { transform: translateY(-3px); }
-.shield.on .sh { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgb(0 0 0 / .35); }
-.shield span { font-size: .72rem; font-weight: 600; background: var(--panel); padding: 0 5px; border-radius: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* same shape as the detail header's flag, drawn on the flag itself so it fills the shield */
+.shield .flag { border-width: 2px; border-radius: 4px 4px 50% 50% / 4px 4px 55% 55%; box-shadow: 0 2px 6px rgb(0 0 0 / .35); transition: transform .12s; }
+.shield:hover .flag, .shield:focus-visible .flag { transform: translateY(-3px); }
+.shield.on .flag { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgb(0 0 0 / .35); }
+.shield .nm { font-size: .72rem; font-weight: 600; background: var(--panel); padding: 0 5px; border-radius: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* side panel */
 aside { width: 440px; max-width: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
@@ -124,10 +127,12 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
   .legend { margin-left: 0; }
   .hint { display: none; }
   .modes { top: 6px; max-width: calc(100% - 60px); left: 8px; transform: none; }
-  .shield { width: 54px; } .shield .sh { width: 42px; height: 48px; }
+  .shield { width: 54px; } .shield .flag { zoom: .8; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
+</head>
+<body>
 
 <div class="app">
   <header>
@@ -164,13 +169,16 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const fmt = n => n.toLocaleString('en-US');
 
 // ---------------------------------------------------------------- modes
+// The Actum mode is switched off for now. To bring it back, uncomment it and renumber the keys.
+// The first mode listed is the default.
 const MODES = [
-  { id: 'actum', label: D.title, key: '1' },
-  { id: 'ante-bellum', label: 'Ante Bellum', key: '2' },
-  { id: 'religion', label: 'Religion', key: '3' },
-  { id: 'culture', label: 'Culture', key: '4' },
+  // { id: 'actum', label: D.title, key: '1' },
+  { id: 'ante-bellum', label: 'Ante Bellum', key: '1' },
+  { id: 'religion', label: 'Religion', key: '2' },
+  { id: 'culture', label: 'Culture', key: '3' },
 ];
-let mode = 'actum';
+const hasMode = id => MODES.some(m => m.id === id);
+let mode = MODES[0].id;
 
 // ---------------------------------------------------------------- tag sets
 const KEY = 'aba-mission-map-dedicated';
@@ -340,6 +348,7 @@ wrap.addEventListener('pointerleave', () => { $('hover').hidden = true; });
 wrap.addEventListener('contextmenu', e => {
   if (e.target.closest('.modes, .shields, .zoom')) return;
   e.preventDefault();
+  if (!hasMode('actum')) return;
   const t = tagAt(e); if (!t) return;
   if (mode !== 'actum') setMode('actum');
   DED.has(t) ? DED.delete(t) : DED.add(t); save(); paint(); refreshPanel();
@@ -381,7 +390,7 @@ function renderModes() {
     culture: '<span><i class="sw multi"></i>Province culture</span>',
   };
   $('legend').innerHTML = L[mode];
-  $('hint').textContent = 'Click: details · Wheel: zoom · Drag: pan · R: reset · Esc: close · 1–4: map mode' + (mode === 'actum' ? ' · Right click: toggle dedicated tree' : '');
+  $('hint').textContent = `Click: details · Wheel: zoom · Drag: pan · R: reset · Esc: close · 1–${MODES.length}: map mode` + (mode === 'actum' ? ' · Right click: toggle dedicated tree' : '');
 }
 $('modes').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
 function setMode(m) {
@@ -391,7 +400,7 @@ function setMode(m) {
 }
 function renderShields() {
   $('shields').innerHTML = D.favorites.filter(t => D.tags[t]).map(t =>
-    `<button class="shield${t === selected ? ' on' : ''}" data-tag="${t}" title="${esc(tagName(t))}"><span class="sh">${flag(t, 52)}</span><span>${esc(tagName(t))}</span></button>`).join('');
+    `<button class="shield${t === selected ? ' on' : ''}" data-tag="${t}" title="${esc(tagName(t))}">${flag(t, 52)}<span class="nm">${esc(tagName(t))}</span></button>`).join('');
 }
 $('shields').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if (b) select(b.dataset.tag); });
 
@@ -474,7 +483,23 @@ function renderDetail() {
     : mode === 'ante-bellum' && ABT.has(t) ? '<span class="chip d">Ante Bellum mission tree</span>' : '';
   const useAB = mode === 'ante-bellum';
   const list = (useAB ? x.ab : x.aba) || [];
-  const key = 'd-' + t;
+  const showTree = mode === 'actum' || mode === 'ante-bellum';
+  const sec = (id, title, cnt, body) => `<details data-sec="${id}"${openState[id] ?? true ? ' open' : ''}><summary><span>${title}</span><span class="cnt">${cnt}</span></summary><div class="body">${body}</div></details>`;
+  let extra;
+  if (mode === 'religion') {
+    extra = sec('religion', 'Religion', '', x.religion ? `
+      <div class="dname" style="margin-bottom:6px">${relIcon(x.religion, 26)}<b>${esc(rel.name || x.religion)}</b>${rel.gname ? `<span class="tagcode">${esc(rel.gname)}</span>` : ''}</div>
+      ${rel.desc ? `<p class="lore">${esc(rel.desc)}</p>` : '<p class="empty">No description in the game files.</p>'}` : '<p class="empty">No religion in the game files.</p>');
+  } else if (mode === 'culture') {
+    const g = cul.group, members = (g && D.groupCultures[g]) || [];
+    extra = sec('culture', 'Culture group', members.length ? members.length + ' cultures' : '', g ? `
+      <div class="dname" style="margin-bottom:6px"><b>${esc(D.cgroups[g] || g)}</b></div>
+      <div class="chips">${members.map(c => `<span class="chip${c === x.culture ? ' d' : ''}">${esc((D.cultures[c] || {}).name || c)}</span>`).join('')}</div>` : '<p class="empty">No culture group in the game files.</p>');
+  } else {
+    extra = sec('tree', 'Mission tree', list.length ? list.reduce((n, i) => n + D.series[i].missions.length, 0) + ' missions' : '', `
+      <p class="src">${useAB ? 'As in Ante Bellum' : `As in ${esc(D.title)}`}${list.length ? ' · hover a mission for details' : ''}</p>
+      ${list.length ? `<div class="tree" id="tree"></div>` : '<p class="empty">No mission tree. This country uses the generic missions.</p>'}`);
+  }
   panel.innerHTML = `
     <div class="dhead">${flag(t, 56)}<div style="min-width:0">
       <div class="dname"><h2>${esc(tagName(t))}</h2>${relIcon(x.religion, 26)}</div>
@@ -485,11 +510,9 @@ function renderDetail() {
       <span class="chip">${x.provs || 0} provinces</span><span class="chip">${fmt(x.dev || 0)} development</span></div>
     <details data-sec="lore"${openState.lore ?? true ? ' open' : ''} style="margin-top:12px"><summary><span>Lore</span></summary><div class="body">
       ${x.lore ? `<p class="lore">${esc(x.lore)}</p>` : '<p class="empty">No lore text for this country in the game files.</p>'}</div></details>
-    <details data-sec="tree"${openState.tree ?? true ? ' open' : ''}><summary><span>Mission tree</span><span class="cnt">${list.length ? list.reduce((n, i) => n + D.series[i].missions.length, 0) + ' missions' : ''}</span></summary><div class="body">
-      <p class="src">${useAB ? 'As in Ante Bellum' : `As in ${esc(D.title)}`}${list.length ? ' · hover a mission for details' : ''}</p>
-      ${list.length ? `<div class="tree" id="tree"></div>` : '<p class="empty">No mission tree. This country uses the generic missions.</p>'}</div></details>`;
+    ${extra}`;
   panel.scrollTop = 0;
-  if (list.length) renderTree(list);
+  if (showTree && list.length) renderTree(list);
 }
 
 // mission tree: five slot columns; series in one slot that overlap become switchable branches
@@ -566,7 +589,9 @@ const retheme = () => { seaCss = ''; paint(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', retheme);
 new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-const fromHash = () => { const h = location.hash.slice(1); if (MODES.some(m => m.id === h)) setMode(h); };
+const fromHash = () => { const h = location.hash.slice(1); if (hasMode(h)) setMode(h); };
 addEventListener('hashchange', fromHash);
 renderModes(); renderShields(); resize(); renderList(); fromHash();
 </script>
+</body>
+</html>
