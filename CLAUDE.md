@@ -14,11 +14,16 @@ preview of its mission tree.
   vanilla with AB merged in), `MOD_ROOT` (`D:/modding/aba`), `SUBMOD_FILE`, `ADDITIONAL_FILE`,
   `FAVORITES_FILE`, `AB_FILE`, `AB_MISSION_FILES` (`AB_*.txt`), `CULTURE_COLORS_FILE`, `OUTPUT`
   (`index.html`), `TITLE` (user set it to `Ante Bellum`), `SUBTITLE`, `SCALE` (user set it to 1),
-  `CACHE_DIR` (`.cache`), `MUSIC_FILE` (`theme.ogg`, embedded base64 as `D.music`) and `LORE_DEFINED_TEXT`.
+  `CACHE_DIR` (`.cache`), `MUSIC_FILE` (`theme.ogg`), `MUSIC_BITRATE` (`64k`: re-encoded to Opus with ffmpeg,
+  the user's choice; `''` = as is), `ACTUM_MODE` (`False`), `ATLAS_FORMAT`/`ATLAS_QUALITY` (`AVIF`, 60) and
+  `LORE_DEFINED_TEXT`.
   Relative paths resolve from the script's own folder. Run it with `python build_map.py`, which needs
   `pip install pillow numpy`.
-- `template.html` holds the page's HTML, CSS and JS. The script injects JSON data at `/*__DATA__*/null`
-  and replaces `__TITLE__` and `__SUBTITLE__`.
+- `template.html` holds the page's HTML, CSS and JS. The script replaces `/*__DATA__*/` with the text
+  data (JSON → gzip -9 → base64), `/*__BINARY__*/null` with `{img, flags, relIcons, msnIcons, music}`
+  (base64 / data URIs), and `__TITLE__` / `__SUBTITLE__`. The main script is `<script type="module">`
+  so it can top-level `await`: `unpack()` decodes base64 with `fetch('data:…')`, `DecompressionStream`
+  unzips the JSON. Module scope means page functions aren't globals (test probes go inside the module).
 - `country_setup/` holds the tag lists (`#` starts a comment):
   - `submod.txt` (was `tags.txt`): tags with a dedicated Actum mission tree, drawn highlighted.
   - `additional.txt`: tags with new content but no new tree, drawn striped.
@@ -29,9 +34,9 @@ preview of its mission tree.
   when missing and never overwrites it.
 - The output is a single standalone `index.html` (full `<!doctype>` + `<meta charset="utf-8">`, so it
   also renders correctly when served without a charset header, as on the user's Cloudflare Worker). All
-  images (province-id PNG, WebP atlases) and the music are embedded. On load the atlases and music are
-  turned into `blob:` URLs (`blobUrl`): with data URIs in `var(--flags)` every sprite re-parsed megabytes,
-  which made selecting a country take 2.9 s.
+  images (province-id lossless WebP, AVIF atlases) and the music (Ogg Opus) are embedded. On load the
+  atlases become `blob:` URLs: with data URIs in `var(--flags)` every sprite re-parsed megabytes, which
+  made selecting a country take 2.9 s. The music is unpacked in the background.
 
 ## User's preferences and decisions
 
@@ -51,13 +56,18 @@ preview of its mission tree.
 - **Paradox parser:** `parse()` returns a list of (key, value) pairs. `history_at()` applies dated
   blocks up to 1444.11.11. `Layers` merges folders, with later roots overriding earlier ones by
   relative path.
-- **Cache:** `.cache/parse.pkl` holds parsed script files (`parse_file()`), `.cache/images.pkl` holds
-  resized images as PNG bytes (`open_image(path, size)`), the province image result (`province_image`)
-  and the encoded WebP atlases (keyed by an md5 of the sheet). Keys include path, mtime and size, so
-  edited files are re-read; entries not used in a run are dropped. Delete `.cache/` to force a full
-  rebuild.
+- **Cache** (`.cache/`, keys include path, mtime and size; entries not used in a run are dropped; delete
+  the folder to force a full rebuild):
+  - `game.pkl`: everything `load_game()` reads from the game files (localisation, colours, histories,
+    cultures, religions, geography, lore texts, mission series, sprites), keyed by every input file and
+    this script itself. With unchanged game files nothing is parsed (`parse.pkl` is only opened on a miss).
+  - `parse.pkl`: parsed script files (`parse_file()`), used when `game.pkl` misses.
+  - `images.pkl`: resized images as PNG bytes (`open_image`), the province image + per-province bboxes
+    (`province_image`), the encoded atlases (`atlas()`, keyed by its entries' cache keys, so an unchanged
+    sheet opens no images) and the Opus music (`music_data`).
 - **Map data:** `map/provinces.bmp` and `definition.csv` produce a province-id image, downscaled by
-  `SCALE` and encoded into a PNG as R=id>>8, G=id&255. Water comes from `default.map`
+  `SCALE` and encoded as lossless WebP (R=id>>8, G=id&255; exact pixels, 40 % of a PNG). Per-country
+  bounding boxes (`D.bbox`) come from per-province boxes computed with numpy. Water comes from `default.map`
   (`sea_starts` and `lakes`) and wasteland from the `impassable` list in `climate.txt`.
 - **Province history** supplies owner, culture, religion and development
   (tax + production + manpower).
@@ -97,8 +107,9 @@ preview of its mission tree.
 
 - **Map modes:** a bar at the top middle of the map, also on number keys, and synced with the URL hash
   (`#ante-bellum`, `#religion`, `#culture`). The first entry in `MODES` is the default.
-  1. **Actum:** currently **disabled** (commented out in `MODES`; the user will revisit it after the
-     other modes). Its code stays: highlighted, striped or grey; right click toggles a tag's dedicated
+  1. **Actum:** currently **disabled** via `ACTUM_MODE = False` in build_map.py (the user will revisit it
+     after the other modes): no Actum trees are computed or embedded and `MODES` leaves it out
+     (`D.actum`). Its code stays: highlighted, striped or grey; right click toggles a tag's dedicated
      tree (guarded off while the mode is hidden); a textarea with Apply and Reset (saved per viewer in
      localStorage), plus sections for Dedicated / Additional content / No mission tree.
   2. **Ante Bellum** (default now): `ab.txt` tags versus grey.
@@ -109,7 +120,8 @@ preview of its mission tree.
   on the flag itself (same as the detail header), so the flag fills it. Clicking one selects that
   country and zooms to it.
 - **List rows:** flag, name, code, and "N prov · D dev" on the right. Sections are collapsible
-  `<details>` elements; a search opens only the sections that match.
+  `<details>` elements; a search opens only the sections that match. Closed sections get their rows
+  only when first opened (`lazyRows`).
 - **Country detail:** flag, name and religion icon; chips (status, culture, religion, provinces,
   development); a Lore section; then a section that depends on the mode: mission tree preview
   (Ante Bellum / Actum), religion icon + group + description (Religion), or the culture group with all
@@ -130,13 +142,15 @@ preview of its mission tree.
     line. NEAREST when zoomed in, mipmapped when out.
   - View = `{lon, lat, R}`. The functions are `rotateBy` (drag), `zoomAt` (wheel/buttons/pinch, keeps the
     cursor point), `flyTo` (eased), `focusTag` (country bbox → lon/lat and size), `reset` (first
-    favourite, whole globe), and `screenToLonLat` / `pick` for hover and click on the CPU `ids` array.
+    favourite, whole globe), and `screenToLonLat` / `pick` for hover and click. `pick` reads the one
+    pixel under the cursor from a 2D canvas of the id image (`idAt`, ~0.03 ms) instead of keeping a
+    copy of all 11.5 M pixels (that copy cost ~0.2 s at load and ~70 MB of memory).
   - If `MAX_TEXTURE_SIZE < W`, the id image is downscaled nearest-neighbour for the GPU only.
   - No WebGL 2 → a message in the hint box.
 - **Theme button** (sun/moon, next to the title): sets `data-theme` on `<html>`, saved in localStorage
   `aba-mission-map-theme`. A small `<head>` script applies it before first paint, and `retheme()`
   re-reads the colour tokens (`theme()` caches them).
-- **Music button**: loops `D.music` at volume 0.5. Autoplay is usually refused, so it starts on the first
+- **Music button**: loops `BINARY.music` at volume 0.5. Autoplay is usually refused, so it starts on the first
   click or key press. A pause is saved in localStorage `aba-mission-map-music`.
 - **Design:** theme tokens on `:root` with dark-mode variants. Fonts are Alegreya SC, Source Sans 3
   and JetBrains Mono.
@@ -147,9 +161,11 @@ preview of its mission tree.
   SMO matches its AB series; the earlier miss came from the incomplete cloud files. The 756 ids without
   history are placeholder `definition.csv` slots (id 0, `UnusedLand*`, `RNW`) that never appear on the
   map, so the "no history" warning only counts provinces that are drawn.
-- A warm-cache build takes about 4 s (2026-11-02; about 110 s originally). The output is about 11 MB
-  with `SCALE = 1`: music ~5 MB (base64; the user chose embedding over a separate file), mission series
-  ~2.3 MB (descriptions 1.56 MB), mission icons 1.4 MB, province image 1 MB, flags 0.75 MB.
-- Page timings in headless Edge with SwiftShader (CPU-emulated GPU, so real GPUs are faster): select
-  ~64 ms, back to list ~35 ms, mode switch ~30 ms, one rotate frame ~18 ms.
+- A warm-cache build takes about 1.7 s (2026-11-02; ~110 s originally, 4 s before the game cache). The
+  output is about 4.6 MB with `SCALE = 1` (was 11.2 MB): music ~2 MB (Opus 64k base64; the user chose
+  embedding over a separate file), gzipped text data ~1 MB, atlases ~1 MB, province image 0.4 MB.
+- Page timings in headless Edge with SwiftShader (CPU-emulated GPU, so real GPUs are faster, and the
+  numbers are noisy): startup script ~0.8 s (was ~1.8 s); map ready ~2.7 s, dominated by emulated GPU
+  setup; select ~15–50 ms, back to list ~50 ms, mode switch ~5–15 ms. Use real time (`--timeout`), not
+  `--virtual-time-budget`, when timing: the virtual clock gave 0 ms readings inside module code.
 - Safari plays Ogg only from Safari 17 (macOS 14 / iOS 17).

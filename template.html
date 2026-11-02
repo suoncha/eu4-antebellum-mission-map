@@ -67,9 +67,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .hover { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); padding: 4px 8px; font-size: .8rem; border-radius: 3px; white-space: nowrap; z-index: 3; }
 
 /* bookmark shields */
-.shields { position: absolute; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 10px;
-  max-width: calc(100% - 20px); overflow-x: auto; padding: 4px 6px 2px; }
-.shield { border: 0; background: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 64px; flex: none; color: var(--ink); }
+/* at most 7 shields wide; more scroll sideways (--sw = shield width) */
+.shields { --sw: 64px; position: absolute; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 10px;
+  max-width: min(calc(7 * var(--sw) + 6 * 10px + 12px), calc(100% - 20px)); overflow-x: auto; padding: 4px 6px 8px;
+  scroll-snap-type: x mandatory; scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
+.shields::-webkit-scrollbar { height: 6px; }
+.shields::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+.shield { border: 0; background: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; width: var(--sw); flex: none; color: var(--ink); scroll-snap-align: start; }
 /* same shape as the detail header's flag, drawn on the flag itself so it fills the shield */
 .shield .flag { border-width: 2px; border-radius: 4px 4px 50% 50% / 4px 4px 55% 55%; box-shadow: 0 2px 6px rgb(0 0 0 / .35); transition: transform .12s; }
 .shield:hover .flag, .shield:focus-visible .flag { transform: translateY(-3px); }
@@ -134,7 +138,7 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
   .legend { margin-left: 0; }
   .hint { display: none; }
   .modes { top: 6px; max-width: calc(100% - 60px); left: 8px; transform: none; }
-  .shield { width: 54px; } .shield .flag { zoom: .8; }
+  .shields { --sw: 54px; } .shield .flag { zoom: .8; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
@@ -173,21 +177,26 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
 </div>
 <div class="tip" id="tip" hidden></div>
 
-<script>
-const D = /*__DATA__*/null;
+<script type="module">
+// The page's data: text (names, missions, lore, ...) as gzipped JSON, images and music as base64.
+// fetch() decodes data: URLs natively, and DecompressionStream unzips, so neither blocks the page for long.
+const BINARY = /*__BINARY__*/null;
+const unpack = async (b64, type) => (await fetch(`data:${type};base64,${b64}`)).blob();
+const D = JSON.parse(await new Response((await unpack('/*__DATA__*/', 'application/octet-stream')).stream()
+  .pipeThrough(new DecompressionStream('gzip'))).text());
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = n => n.toLocaleString('en-US');
 
 // ---------------------------------------------------------------- modes
-// The Actum mode is switched off for now. To bring it back, uncomment it and renumber the keys.
-// The first mode listed is the default.
+// The first mode listed is the default; keys 1, 2, ... in this order. The Actum mode is there when
+// ACTUM_MODE is on in build_map.py.
 const MODES = [
-  // { id: 'actum', label: D.title, key: '1' },
-  { id: 'ante-bellum', label: 'Ante Bellum', key: '1' },
-  { id: 'religion', label: 'Religion', key: '2' },
-  { id: 'culture', label: 'Culture', key: '3' },
-];
+  ...(D.actum ? [{ id: 'actum', label: 'Actum' }] : []),
+  { id: 'ante-bellum', label: 'Ante Bellum' },
+  { id: 'religion', label: 'Religion' },
+  { id: 'culture', label: 'Culture' },
+].map((m, i) => ({ ...m, key: String(i + 1) }));
 const hasMode = id => MODES.some(m => m.id === id);
 let mode = MODES[0].id;
 
@@ -213,50 +222,41 @@ const mix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] * (1 - t) + b[i] * t
 // greyed-out tag: keep a hint of its lightness so neighbours stay distinguishable
 const grey = (c, land) => { const l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]; return mix([l, l, l], land, 0.72); };
 
-// ---------------------------------------------------------------- embedded files
-// Big data URIs are slow when many elements reference them (megabytes re-parsed per sprite), so each is
-// decoded once into a blob: URL.
-function blobUrl(b64, type) {
-  const s = atob(b64), a = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
-  return URL.createObjectURL(new Blob([a], { type }));
-}
-
 // ---------------------------------------------------------------- sprites
 function sprite(sheet, i, size, cls, extra = '') {
   const s = D[sheet]; if (!s.uri || i == null || i < 0) return null;
   const c = s.cols, x = (i % c) * size, y = Math.floor(i / c) * size;
   return `<span class="${cls}" style="width:${size}px;height:${size}px;background-image:var(--${sheet});background-size:${c * size}px auto;background-position:-${x}px -${y}px;${extra}" aria-hidden="true"></span>`;
 }
-for (const k of ['flags', 'relIcons', 'msnIcons']) if (D[k].uri)
-  document.documentElement.style.setProperty('--' + k, `url(${blobUrl(D[k].uri.split(',')[1], 'image/webp')})`);
+// The sheets become blob: URLs: a data URI in var(--flags) would be re-parsed (megabytes) for every sprite.
+await Promise.all(['flags', 'relIcons', 'msnIcons'].map(async k => {
+  if (!BINARY[k]) return;
+  D[k].uri = URL.createObjectURL(await (await fetch(BINARY[k])).blob());
+  document.documentElement.style.setProperty('--' + k, `url(${D[k].uri})`);
+}));
 const flag = (t, size) => sprite('flags', D.flags.idx[t], size, 'flag') ||
   `<span class="flag" style="width:${size}px;height:${size}px;background:${css(tagCol(t))}" aria-hidden="true"></span>`;
 const relIcon = (r, size) => sprite('relIcons', D.relIcons.idx[r], size, 'ricon') || '';
 const tagName = t => (D.tags[t] && D.tags[t].name) || t;
 
 // ---------------------------------------------------------------- map data
-const W = D.w, H = D.h, ids = new Uint16Array(W * H), NP = D.owner.length;
+const W = D.w, H = D.h, NP = D.owner.length;
 const tagIndex = {}; Object.keys(D.tags).forEach((t, i) => tagIndex[t] = i);
 const ownerIdx = new Int32Array(NP).map((_, p) => D.owner[p] ? tagIndex[D.owner[p]] ?? -2 : -1);
-const bbox = {};
-let selected = null, ready = false;
+const bbox = D.bbox;  // per country [x0, y0, x1, y1], from the build
+let selected = null, ready = false, idCanvas = null;
+
+// province id at a map pixel, read one pixel at a time for hover and click (no full copy of the map)
+const idAt = (x, y) => { const p = idCanvas.getImageData(x, y, 1, 1).data; return (p[0] << 8) | p[1]; };
 
 const img = new Image();
 img.onload = () => {
   const c = document.createElement('canvas'); c.width = W; c.height = H;
-  const c2 = c.getContext('2d', { willReadFrequently: true }); c2.drawImage(img, 0, 0);
-  const px = c2.getImageData(0, 0, W, H).data;
-  for (let i = 0, j = 0; i < ids.length; i++, j += 4) ids[i] = (px[j] << 8) | px[j + 1];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const t = D.owner[ids[y * W + x]]; if (!t) continue;
-    const b = bbox[t] || (bbox[t] = [x, y, x, y]);
-    if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
-  }
+  idCanvas = c.getContext('2d', { willReadFrequently: true }); idCanvas.drawImage(img, 0, 0);
   if (!gl) { $('hint').textContent = 'This map needs a browser with WebGL 2.'; return; }
   initGL(img); ready = true; paint(); reset(false);
 };
-img.src = 'data:image/png;base64,' + D.img;
+img.src = 'data:image/webp;base64,' + BINARY.img;
 
 // per-province colours for the current mode, as RGBA rows for the province data textures (alpha = striped)
 const PW = 256, PH = Math.ceil(NP / PW);
@@ -452,7 +452,7 @@ function screenToLonLat(cx, cy) {  // CSS px within the map area → [lon, lat],
 function pick(cx, cy) {
   const ll = ready && screenToLonLat(cx, cy); if (!ll) return -1;
   const x = Math.floor((ll[0] / (2 * Math.PI) + .5) * W), y = Math.floor((LAT_TOP - ll[1] / DEG) / (LAT_TOP - LAT_BOTTOM) * H);
-  return y < 0 || y >= H ? -1 : ids[y * W + (x % W + W) % W];
+  return y < 0 || y >= H ? -1 : idAt((x % W + W) % W, y);
 }
 function flyTo(lon, lat, R) {
   const a = { ...view }, dl = wrapPi(lon - a.lon), t0 = performance.now();
@@ -520,7 +520,7 @@ wrap.addEventListener('contextmenu', e => {
   if (mode !== 'actum') setMode('actum');
   DED.has(t) ? DED.delete(t) : DED.add(t); save(); paint(); refreshPanel();
 });
-wrap.addEventListener('wheel', e => { e.preventDefault(); const r = wrap.getBoundingClientRect(); zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+wrap.addEventListener('wheel', e => { if (e.target.closest('.shields')) return; e.preventDefault(); const r = wrap.getBoundingClientRect(); zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
 $('zin').onclick = () => { const r = wrap.getBoundingClientRect(); zoomAt(1.5, r.width / 2, r.height / 2); };
 $('zout').onclick = () => { const r = wrap.getBoundingClientRect(); zoomAt(1 / 1.5, r.width / 2, r.height / 2); };
 addEventListener('keydown', e => {
@@ -566,9 +566,19 @@ function setMode(m) {
   try { history.replaceState(null, '', '#' + m); } catch (e) {}
 }
 function renderShields() {
-  $('shields').innerHTML = D.favorites.filter(t => D.tags[t]).map(t =>
+  const bar = $('shields'), x = bar.scrollLeft;  // re-rendering would reset the scroll position
+  bar.innerHTML = D.favorites.filter(t => D.tags[t]).map(t =>
     `<button class="shield${t === selected ? ' on' : ''}" data-tag="${t}" title="${esc(tagName(t))}">${flag(t, 52)}<span class="nm">${esc(tagName(t))}</span></button>`).join('');
+  bar.scrollLeft = x;
+  const on = bar.querySelector('.on');  // bring a selected favourite into view
+  if (on && (on.offsetLeft < bar.scrollLeft || on.offsetLeft + on.offsetWidth > bar.scrollLeft + bar.clientWidth))
+    bar.scrollLeft = on.offsetLeft - (bar.clientWidth - on.offsetWidth) / 2;
 }
+// the mouse wheel scrolls the shield bar sideways
+$('shields').addEventListener('wheel', e => {
+  const s = e.currentTarget; if (s.scrollWidth <= s.clientWidth) return;
+  e.preventDefault(); s.scrollLeft += e.deltaY + e.deltaX;
+}, { passive: false });
 $('shields').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if (b) select(b.dataset.tag); });
 
 // ---------------------------------------------------------------- side panel: lists
@@ -578,11 +588,14 @@ function tagRow(t) {
   const x = D.tags[t];
   return `<div class="row" tabindex="0" data-tag="${t}">${flag(t, 22)}<span class="n">${esc(tagName(t))} <span class="tagcode">${t}</span></span><span class="c">${x ? `${x.provs} prov · ${fmt(x.dev)} dev` : 'not on map'}</span></div>`;
 }
+const lazyRows = {};  // section id -> tags of a closed section, rendered when it is first opened
+const rows = tags => tags.map(tagRow).join('') || '<p class="empty">None.</p>';
 function section(id, title, tags, defOpen, extraHead = '') {
   const q = $('q').value.trim();
   const open = q ? tags.length > 0 : (openState[id] ?? defOpen);
+  if (open) delete lazyRows[id]; else lazyRows[id] = tags;
   return `<details data-sec="${id}"${open ? ' open' : ''}><summary>${extraHead}<span>${esc(title)}</span><span class="cnt">${tags.length}</span></summary><div class="body">${
-    tags.map(tagRow).join('') || '<p class="empty">None.</p>'}</div></details>`;
+    open ? rows(tags) : ''}</div></details>`;
 }
 const byName = (a, b) => tagName(a).localeCompare(tagName(b));
 function matches(t) {
@@ -631,7 +644,11 @@ function renderList() {
     $('revert').onclick = () => { DED = new Set(D.dedicated); try { localStorage.removeItem(KEY); } catch (e) {} paint(); renderList(); };
   }
 }
-panel.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.sec && !$('q').value.trim()) openState[d.dataset.sec] = d.open; }, true);
+panel.addEventListener('toggle', e => {
+  const d = e.target, id = d.dataset && d.dataset.sec; if (!id) return;
+  if (d.open && lazyRows[id]) { d.querySelector('.body').innerHTML = rows(lazyRows[id]); delete lazyRows[id]; }
+  if (!$('q').value.trim()) openState[id] = d.open;
+}, true);
 
 // ---------------------------------------------------------------- side panel: country detail
 function select(t, focus = true) {
@@ -777,8 +794,9 @@ renderThemeButton();
 
 // ---------------------------------------------------------------- music
 // Browsers refuse to play sound before the viewer's first click or key press; then it starts on that.
-if (D.music) {
-  const KEY = 'aba-mission-map-music', audio = new Audio(blobUrl(D.music, 'audio/ogg')), btn = $('music');
+// Unpacked in the background, so it doesn't hold up the map.
+if (BINARY.music) unpack(BINARY.music.b64, BINARY.music.type).then(blob => {
+  const KEY = 'aba-mission-map-music', audio = new Audio(URL.createObjectURL(blob)), btn = $('music');
   audio.loop = true; audio.volume = 0.5;
   let want = true;
   try { want = localStorage.getItem(KEY) !== 'off'; } catch (e) {}
@@ -796,7 +814,7 @@ if (D.music) {
   };
   if (want) audio.play().catch(() => { addEventListener('pointerdown', unlock, true); addEventListener('keydown', unlock, true); });
   btn.hidden = false; render();
-}
+});
 
 const fromHash = () => { const h = location.hash.slice(1); if (hasMode(h)) setMode(h); };
 addEventListener('hashchange', fromHash);

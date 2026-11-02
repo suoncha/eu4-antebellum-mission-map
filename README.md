@@ -15,8 +15,8 @@ The bar at the top of the map (number keys):
 3. **Culture**: provinces coloured by culture; the side panel groups countries by culture group, and
    the country panel lists every culture of the country's group.
 
-A fourth mode, **Ante Bellum: Actum** (tags from `submod.txt` in full colour, `additional.txt`
-striped), is switched off for now in `template.html` (`MODES`).
+A fourth mode, **Actum** (tags from `submod.txt` in full colour, `additional.txt` striped), is
+switched off for now with `ACTUM_MODE` in `build_map.py`.
 
 Click a country for details (the globe turns to it), drag to rotate the globe, wheel / buttons / pinch to
 zoom, `R` to reset, `Esc` to close.
@@ -41,8 +41,11 @@ pip install pillow numpy
      `localisation/`, `customizable_localization/`, `gfx/flags/`, `gfx/interface/` and `interface/`.
    - `MOD_ROOT`: the Actum mod folder. Its missions, localisation and flags override the game folder.
    - `OUTPUT`, `TITLE`, `SUBTITLE`, `SCALE`, `CACHE_DIR`, `LORE_DEFINED_TEXT`, `AB_MISSION_FILES`.
-   - `MUSIC_FILE`: Ogg music embedded in the page (default `theme.ogg`; `''` for none, which also hides
-     the button). It adds about 1.3× the file's size to the page.
+   - `MUSIC_FILE`: music embedded in the page (default `theme.ogg`; `''` for none, which also hides
+     the button). `MUSIC_BITRATE` (default `64k`) re-encodes it to Opus with ffmpeg if ffmpeg is installed;
+     `''` embeds the file as it is.
+   - `ACTUM_MODE`: the Actum map mode and its mission trees (off for now; when off they cost nothing).
+   - `ATLAS_FORMAT`, `ATLAS_QUALITY`: format of the flag and icon sheets (AVIF 60 by default).
 2. Fill in the tag lists in `country_setup/` (separate tags with spaces, commas or new lines; `#`
    starts a comment):
    - `submod.txt`: tags with a dedicated mission tree in Actum.
@@ -62,8 +65,9 @@ pip install pillow numpy
 The script reports tags from the lists that don't exist on the map at 1444, `ab.txt` tags whose tree
 it couldn't find, unknown mission file names and culture groups without a colour.
 
-Parsed game files, resized images, the province image and the encoded icon sheets are cached in
-`.cache/`, so later builds are faster. Delete the folder to force a full rebuild.
+Everything read from the game files, resized images, the province image, the encoded icon sheets
+and the re-encoded music are cached in `.cache/`, so a build with unchanged game files takes about 2 s.
+Delete the folder to force a full rebuild.
 
 ## How mission trees are matched
 

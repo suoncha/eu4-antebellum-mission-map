@@ -8,12 +8,15 @@ import base64
 import colorsys
 import csv
 import fnmatch
+import gzip
 import hashlib
 import io
 import json
 import os
 import pickle
 import re
+import shutil
+import subprocess
 import sys
 import numpy as np
 from PIL import Image
@@ -41,7 +44,10 @@ TITLE = 'Ante Bellum'
 SUBTITLE = 'Mission Map'
 SCALE = 1                           # map downscale factor; 1 = full resolution (about 4x file size)
 CACHE_DIR = '.cache'                # parsed game files and resized images; delete it to force a full rebuild
-MUSIC_FILE = 'theme.ogg'            # Ogg music embedded in the page, with a play/pause button; '' for none
+MUSIC_FILE = 'theme.ogg'            # music embedded in the page, with a play/pause button; '' for none
+MUSIC_BITRATE = '64k'               # re-encode the music to Opus at this bitrate (needs ffmpeg); '' to embed as is
+ACTUM_MODE = False                  # the Actum map mode and its mission trees; off for now
+ATLAS_FORMAT, ATLAS_QUALITY = 'AVIF', 60  # flag / icon sheets (AVIF is about 40 % smaller than WebP)
 
 # defined_text in customizable_localization/ that picks each country's start-screen lore.
 LORE_DEFINED_TEXT = 'AnteBellumCountryLoreDesc'
@@ -546,15 +552,22 @@ def series_for(series, ctx, facts):
 # ---------------------------------------------------------------- images
 
 def province_image(L, scale):
-    """{'png': base64 PNG with R = id >> 8, G = id & 255, 'w', 'h', 'on_map': sorted ids drawn, 'names'}.
-    Cached, keyed by provinces.bmp, definition.csv and the scale."""
+    """{'webp': base64 lossless WebP with R = id >> 8, G = id & 255, 'w', 'h', 'on_map': sorted ids drawn,
+    'bbox': {id: [x0, y0, x1, y1]}, 'names'}. Cached, keyed by provinces.bmp, definition.csv and the scale."""
     bmp, csv_path = L.file('map/provinces.bmp'), L.file('map/definition.csv')
 
     def make():
         ids, names = build_province_image(bmp, csv_path, scale)
-        return {'png': png_b64(ids), 'w': ids.shape[1], 'h': ids.shape[0],
-                'on_map': np.unique(ids).tolist(), 'names': names}
-    return IMAGES.get(Cache.key(bmp, scale) + Cache.key(csv_path), make)
+        h, w = ids.shape
+        flat, n = ids.ravel(), int(ids.max()) + 1
+        xs, ys = np.tile(np.arange(w), h), np.repeat(np.arange(h), w)
+        box = [np.full(n, w), np.full(n, h), np.full(n, -1), np.full(n, -1)]
+        for b, f, v in zip(box, (np.minimum, np.minimum, np.maximum, np.maximum), (xs, ys, xs, ys)):
+            f.at(b, flat, v)
+        on_map = np.unique(flat).tolist()
+        return {'webp': webp_b64(ids), 'w': w, 'h': h, 'on_map': on_map, 'names': names,
+                'bbox': {p: [int(b[p]) for b in box] for p in on_map}}
+    return IMAGES.get(Cache.key(bmp, scale, 'webp') + Cache.key(csv_path), make)
 
 
 def build_province_image(bmp_path, csv_path, scale):
@@ -577,12 +590,12 @@ def build_province_image(bmp_path, csv_path, scale):
     return ids, names
 
 
-def png_b64(ids):
+def webp_b64(ids):
     rgb = np.zeros(ids.shape + (3,), np.uint8)
     rgb[..., 0] = ids >> 8
     rgb[..., 1] = ids & 255
     buf = io.BytesIO()
-    Image.fromarray(rgb).save(buf, 'PNG', optimize=True)
+    Image.fromarray(rgb).save(buf, 'WEBP', lossless=True, method=4)  # exact pixels, ~40 % of the PNG
     return base64.b64encode(buf.getvalue()).decode()
 
 
@@ -619,24 +632,46 @@ def open_image(path, size=None, square=False):
     return from_png(IMAGES.get(Cache.key(path, size, square), make_png)) if size else make()
 
 
-def atlas(images, size, cols=32):
-    """Pack {key: image} into one WebP sheet. Returns (data uri, {key: index}, cols)."""
-    keys = [k for k, im in images.items() if im is not None]
-    if not keys:
-        return None, {}, cols
-    rows = (len(keys) + cols - 1) // cols
-    sheet = Image.new('RGBA', (cols * size, rows * size), (0, 0, 0, 0))
-    for i, k in enumerate(keys):
-        im = images[k]
-        sheet.paste(im if im.size == (size, size) else im.resize((size, size), Image.LANCZOS),
-                    ((i % cols) * size, (i // cols) * size))
+def image_entry(path, size, square=False):
+    """An atlas entry for open_image(path, size, square)."""
+    return Cache.key(path, size, square), lambda: open_image(path, size, square)
 
-    def encode():
+
+def music_data(path):
+    """{'type', 'b64'} of the music, re-encoded to Opus at MUSIC_BITRATE when ffmpeg is available. Cached."""
+    if MUSIC_BITRATE and shutil.which('ffmpeg'):
+        def encode():
+            cmd = ['ffmpeg', '-v', 'error', '-i', path, '-vn', '-c:a', 'libopus', '-b:a', MUSIC_BITRATE,
+                   '-vbr', 'on', '-f', 'ogg', 'pipe:1']
+            return subprocess.run(cmd, capture_output=True, check=True).stdout
+        data, kind = IMAGES.get(Cache.key(path, 'opus', MUSIC_BITRATE), encode), 'audio/ogg; codecs=opus'
+    else:
+        if MUSIC_BITRATE:
+            print('  music: ffmpeg not found, embedding it without re-encoding', file=sys.stderr)
+        data, kind = open(path, 'rb').read(), 'audio/ogg'
+    return {'type': kind, 'b64': base64.b64encode(data).decode()}
+
+
+def atlas(entries, size, cols=32):
+    """Pack {key: (cache key, load)} into one sheet, where load() returns the image or None.
+    Returns {'uri': data uri, 'idx': {key: index}, 'cols'}. Cached by the entries' cache keys, so an
+    unchanged sheet doesn't open its images at all."""
+    def make():
+        images = {k: load() for k, (_, load) in entries.items()}
+        keys = [k for k, im in images.items() if im is not None]
+        if not keys:
+            return {'uri': None, 'idx': {}, 'cols': cols}
+        sheet = Image.new('RGBA', (cols * size, (len(keys) + cols - 1) // cols * size), (0, 0, 0, 0))
+        for i, k in enumerate(keys):
+            im = images[k]
+            sheet.paste(im if im.size == (size, size) else im.resize((size, size), Image.LANCZOS),
+                        ((i % cols) * size, (i // cols) * size))
         buf = io.BytesIO()
-        sheet.save(buf, 'WEBP', quality=82, method=4)
-        return 'data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode()
-    uri = IMAGES.get(('atlas', hashlib.md5(sheet.tobytes()).hexdigest(), sheet.size), encode)
-    return uri, {k: i for i, k in enumerate(keys)}, cols
+        sheet.save(buf, ATLAS_FORMAT, quality=ATLAS_QUALITY)
+        uri = f'data:image/{ATLAS_FORMAT.lower()};base64,' + base64.b64encode(buf.getvalue()).decode()
+        return {'uri': uri, 'idx': {k: i for i, k in enumerate(keys)}, 'cols': cols}
+    key = ('atlas', ATLAS_FORMAT, ATLAS_QUALITY, size, cols, tuple((k, ck) for k, (ck, _) in entries.items()))
+    return IMAGES.get(key, make)
 
 
 def find_files(roots, rel_dir, exts):
@@ -738,9 +773,46 @@ def name_hash(s):
     return h
 
 
+GAME_DIRS = [('localisation', ('.yml',)), ('common/country_tags',), ('common/countries',), ('history/countries',),
+             ('history/provinces',), ('common/cultures',), ('common/religions',), ('customizable_localization',),
+             ('missions',), ('interface', ('.gfx',))]
+GAME_MAP_FILES = ['map/default.map', 'map/climate.txt', 'map/area.txt', 'map/region.txt', 'map/superregion.txt',
+                  'map/continent.txt']
+
+
+def load_game(L, Lab):
+    """Everything read from the game files, cached as one object keyed by every input file (and this
+    script), so a build with unchanged game files skips parsing and processing them."""
+    paths = {p for d, *ext in GAME_DIRS for p in L.files(d, *ext).values()} | set(Lab.files('missions').values())
+    paths |= {p for p in map(L.file, GAME_MAP_FILES) if p}
+    key = ('game', Cache.key(os.path.abspath(__file__))) + tuple(Cache.key(p) for p in sorted(paths))
+
+    def make():
+        global PARSED
+        PARSED = Cache('parse.pkl')
+        loc = load_localisation(L)
+        cgroups, corder, cmembers = load_cultures(L)
+        dm = parse_file(L.file('map/default.map'))
+        game = {
+            'loc': loc, 'colors': load_tag_colors(L, loc), 'hist': load_country_history(L),
+            'prov': load_province_history(L), 'cgroups': cgroups, 'corder': corder, 'cmembers': cmembers,
+            'religions': load_religions(L), 'geo': load_geography(L),
+            'lore_texts': load_defined_text(L, LORE_DEFINED_TEXT),
+            'water': load_ids_list(dm, 'sea_starts') | load_ids_list(dm, 'lakes'),
+            'wasteland': load_ids_list(parse_file(L.file('map/climate.txt')), 'impassable'),
+            'series_aba': load_series(L), 'series_ab': load_series(Lab), 'sprites': load_sprites(L),
+        }
+        PARSED.save()
+        return game
+    cache = Cache('game.pkl')
+    game = cache.get(key, make)
+    cache.save()
+    return game
+
+
 def main():
-    global PARSED, IMAGES
-    PARSED, IMAGES = Cache('parse.pkl'), Cache('images.pkl')
+    global IMAGES
+    IMAGES = Cache('images.pkl')
     roots = [here(r) for r in ROOTS]
     mod = here(MOD_ROOT)
     for r in roots:
@@ -755,21 +827,13 @@ def main():
     ab_map = read_tag_map(here(AB_FILE))
 
     print('reading game files...', file=sys.stderr)
-    loc = load_localisation(L)
-    colors = load_tag_colors(L, loc)
-    hist = load_country_history(L)
-    prov = load_province_history(L)
-    cgroups, corder, cmembers = load_cultures(L)
-    religions = load_religions(L)
-    geo = load_geography(L)
-    lore_texts = load_defined_text(L, LORE_DEFINED_TEXT)
-    dm = parse_file(L.file('map/default.map'))
-    water = load_ids_list(dm, 'sea_starts') | load_ids_list(dm, 'lakes')
-    wasteland = load_ids_list(parse_file(L.file('map/climate.txt')), 'impassable')
-
-    print('reading mission trees...', file=sys.stderr)
-    series_aba = load_series(L)
-    series_ab = [s for s in load_series(Lab) if fnmatch.fnmatch(s['file'].lower(), AB_MISSION_FILES.lower())]
+    game = load_game(L, Lab)
+    loc, colors, hist, prov = game['loc'], game['colors'], game['hist'], game['prov']
+    cgroups, corder, cmembers = game['cgroups'], game['corder'], game['cmembers']
+    religions, geo, lore_texts = game['religions'], game['geo'], game['lore_texts']
+    water, wasteland, sprites = game['water'], game['wasteland'], game['sprites']
+    series_aba = game['series_aba'] if ACTUM_MODE else []
+    series_ab = [s for s in game['series_ab'] if fnmatch.fnmatch(s['file'].lower(), AB_MISSION_FILES.lower())]
     ab_by_file = {}
     for i, s in enumerate(series_ab):
         ab_by_file.setdefault(s['file'].lower(), []).append(i)
@@ -879,11 +943,10 @@ def main():
     print('packing flags and icons...', file=sys.stderr)
     flag_files = find_files(full_roots, 'gfx/flags', {'.tga', '.png', '.dds'})
     want = set(alive) | set(dedicated) | set(additional) | set(favorites)
-    flags_uri, flag_idx, flag_cols = atlas({t: open_image(flag_files[t], 64) for t in sorted(want) if t in flag_files}, 64)
+    flags = atlas({t: image_entry(flag_files[t], 64) for t in sorted(want) if t in flag_files}, 64)
 
-    sprites = load_sprites(L)
     strip_path = texture(full_roots, sprites.get('GFX_icon_religion', 'gfx/interface/icon_religion.dds'))
-    rel_imgs = {}
+    rel_entries = {}
     if strip_path:
         strip = []  # the full strip, opened only when a frame is missing from the cache
 
@@ -896,13 +959,12 @@ def main():
             fh = im.size[1]
             return png_bytes(im.crop(((n - 1) * fh, 0, n * fh, fh)).resize((48, 48), Image.LANCZOS))
 
-        for r in used_rel:
+        for r in sorted(used_rel):
             n = religions.get(r, {}).get('icon')
             if n and n >= 1:
-                im = from_png(IMAGES.get(Cache.key(strip_path, 'religion', n, 48), lambda: frame(n)))
-                if im is not None:
-                    rel_imgs[r] = im
-    rel_uri, rel_idx, rel_cols = atlas(rel_imgs, 48)
+                ck = Cache.key(strip_path, 'religion', n, 48)
+                rel_entries[r] = ck, lambda ck=ck, n=n: from_png(IMAGES.get(ck, lambda: frame(n)))
+    rel_icons = atlas(rel_entries, 48)
 
     icons = {}
     for s in out_series:
@@ -911,34 +973,42 @@ def main():
             if ic not in icons:
                 tp = sprites.get(ic) or sprites.get('GFX_' + ic)
                 p = texture(full_roots, tp) if tp else None
-                icons[ic] = open_image(p, 48, square=True) if p else None
-    icon_uri, icon_idx, icon_cols = atlas(icons, 48)
+                icons[ic] = image_entry(p, 48, square=True) if p else None
+    msn_icons = atlas({ic: e for ic, e in icons.items() if e}, 48)
     for s in out_series:
         for m in s['missions']:
-            m['icon'] = icon_idx.get(m['icon'], -1)
+            m['icon'] = msn_icons['idx'].get(m['icon'], -1)
+    tag_bbox = {}  # per country, merged from its provinces' boxes
+    for pid, b in pimg['bbox'].items():
+        t = p_owner[pid] if pid < nprov else ''
+        if t:
+            tb = tag_bbox.setdefault(t, list(b))
+            tb[:] = [min(tb[0], b[0]), min(tb[1], b[1]), max(tb[2], b[2]), max(tb[3], b[3])]
 
-    data = {
-        'title': TITLE,
-        'w': pimg['w'], 'h': pimg['h'],
-        'img': pimg['png'],
+    data = {  # text data, embedded gzipped; images and music go in `binary`
+        'title': TITLE, 'actum': ACTUM_MODE,
+        'w': pimg['w'], 'h': pimg['h'], 'bbox': tag_bbox,
         'owner': p_owner, 'kind': p_kind, 'pcul': p_cul, 'prel': p_rel,
         'pname': [clean_loc(loc.get(f'PROV{i}')) or pnames.get(i, '') for i in range(nprov)],
         'tags': tags, 'lore': lore_list, 'series': out_series,
         'cultures': cul_out, 'cgroups': grp_out, 'groupCultures': group_cultures, 'religions': rel_out,
         'dedicated': dedicated, 'additional': additional, 'favorites': favorites, 'abTree': ab_tree,
-        'flags': {'uri': flags_uri, 'idx': flag_idx, 'cols': flag_cols},
-        'relIcons': {'uri': rel_uri, 'idx': rel_idx, 'cols': rel_cols},
-        'msnIcons': {'uri': icon_uri, 'cols': icon_cols},
-        'music': base64.b64encode(open(here(MUSIC_FILE), 'rb').read()).decode()
-                 if MUSIC_FILE and os.path.isfile(here(MUSIC_FILE)) else None,
+        'flags': {'idx': flags['idx'], 'cols': flags['cols']},
+        'relIcons': {'idx': rel_icons['idx'], 'cols': rel_icons['cols']},
+        'msnIcons': {'cols': msn_icons['cols']},
     }
+    binary = {
+        'img': pimg['webp'], 'flags': flags['uri'], 'relIcons': rel_icons['uri'], 'msnIcons': msn_icons['uri'],
+        'music': music_data(here(MUSIC_FILE)) if MUSIC_FILE and os.path.isfile(here(MUSIC_FILE)) else None,
+    }
+    text = json.dumps(data, separators=(',', ':'), ensure_ascii=False).encode()
     tpl = open(here('template.html'), encoding='utf-8').read()
-    html = tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':'), ensure_ascii=False))
+    html = tpl.replace('/*__DATA__*/', base64.b64encode(gzip.compress(text, 9, mtime=0)).decode())
+    html = html.replace('/*__BINARY__*/null', json.dumps(binary, separators=(',', ':')))
     html = html.replace('__TITLE__', TITLE).replace('__SUBTITLE__', SUBTITLE)
     out = here(OUTPUT)
     with open(out, 'w', encoding='utf-8') as f:
         f.write(html)
-    PARSED.save()
     IMAGES.save()
 
     def report(label, lst):
@@ -948,7 +1018,7 @@ def main():
 
     print(f'wrote {out} ({os.path.getsize(out) // 1024} KB): {len(alive)} tags, {len(dedicated)} dedicated, '
           f'{len(additional)} additional content, {len(ab_tree)} with an Ante Bellum tree, '
-          f'{len(flag_idx)} flags, {len(rel_idx)} religion icons, {len(icon_idx)} mission icons, '
+          f'{len(flags["idx"])} flags, {len(rel_icons["idx"])} religion icons, {len(msn_icons["idx"])} mission icons, '
           f'{sum(1 for t in tags.values() if lore_list[t["lore"]])} with lore', file=sys.stderr)
     report('submod.txt', dedicated)
     report('additional.txt', additional)
