@@ -1,8 +1,8 @@
 # Ante Bellum: Actum mission map
 
-Builds a single standalone HTML page: the 1444 political map with map modes, bookmark-style
-shields for suggested countries, and a side panel with each country's flag, religion, culture,
-development, lore and a preview of its mission tree.
+Builds a single standalone HTML page: the 1444 political map on a 3D globe with map modes,
+bookmark-style shields for suggested countries, and a side panel with each country's flag, religion,
+culture, development, lore and a preview of its mission tree. The page needs a browser with WebGL 2.
 
 ## Map modes
 
@@ -18,7 +18,12 @@ The bar at the top of the map (number keys):
 A fourth mode, **Ante Bellum: Actum** (tags from `submod.txt` in full colour, `additional.txt`
 striped), is switched off for now in `template.html` (`MODES`).
 
-Click a country for details, wheel to zoom, drag to pan, `R` to reset, `Esc` to close.
+Click a country for details (the globe turns to it), drag to rotate the globe, wheel / buttons / pinch to
+zoom, `R` to reset, `Esc` to close.
+
+Next to the title, the sun/moon button switches between light and dark, and the speaker button plays or
+pauses the music. Both choices are remembered per browser. Browsers only allow sound after the
+viewer's first click or key press, so the music starts then.
 
 ## Requirements
 
@@ -36,6 +41,8 @@ pip install pillow numpy
      `localisation/`, `customizable_localization/`, `gfx/flags/`, `gfx/interface/` and `interface/`.
    - `MOD_ROOT`: the Actum mod folder. Its missions, localisation and flags override the game folder.
    - `OUTPUT`, `TITLE`, `SUBTITLE`, `SCALE`, `CACHE_DIR`, `LORE_DEFINED_TEXT`, `AB_MISSION_FILES`.
+   - `MUSIC_FILE`: Ogg music embedded in the page (default `theme.ogg`; `''` for none, which also hides
+     the button). It adds about 1.3× the file's size to the page.
 2. Fill in the tag lists in `country_setup/` (separate tags with spaces, commas or new lines; `#`
    starts a comment):
    - `submod.txt`: tags with a dedicated mission tree in Actum.
@@ -55,8 +62,8 @@ pip install pillow numpy
 The script reports tags from the lists that don't exist on the map at 1444, `ab.txt` tags whose tree
 it couldn't find, unknown mission file names and culture groups without a colour.
 
-Parsed game files and resized images are cached in `.cache/`, so later builds are faster. Delete the
-folder to force a full rebuild.
+Parsed game files, resized images, the province image and the encoded icon sheets are cached in
+`.cache/`, so later builds are faster. Delete the folder to force a full rebuild.
 
 ## How mission trees are matched
 

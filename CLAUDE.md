@@ -14,7 +14,7 @@ preview of its mission tree.
   vanilla with AB merged in), `MOD_ROOT` (`D:/modding/aba`), `SUBMOD_FILE`, `ADDITIONAL_FILE`,
   `FAVORITES_FILE`, `AB_FILE`, `AB_MISSION_FILES` (`AB_*.txt`), `CULTURE_COLORS_FILE`, `OUTPUT`
   (`index.html`), `TITLE` (user set it to `Ante Bellum`), `SUBTITLE`, `SCALE` (user set it to 1),
-  `CACHE_DIR` (`.cache`) and `LORE_DEFINED_TEXT`.
+  `CACHE_DIR` (`.cache`), `MUSIC_FILE` (`theme.ogg`, embedded base64 as `D.music`) and `LORE_DEFINED_TEXT`.
   Relative paths resolve from the script's own folder. Run it with `python build_map.py`, which needs
   `pip install pillow numpy`.
 - `template.html` holds the page's HTML, CSS and JS. The script injects JSON data at `/*__DATA__*/null`
@@ -29,7 +29,9 @@ preview of its mission tree.
   when missing and never overwrites it.
 - The output is a single standalone `index.html` (full `<!doctype>` + `<meta charset="utf-8">`, so it
   also renders correctly when served without a charset header, as on the user's Cloudflare Worker). All
-  images (province-id PNG, WebP atlases) are embedded as data URIs.
+  images (province-id PNG, WebP atlases) and the music are embedded. On load the atlases and music are
+  turned into `blob:` URLs (`blobUrl`): with data URIs in `var(--flags)` every sprite re-parsed megabytes,
+  which made selecting a country take 2.9 s.
 
 ## User's preferences and decisions
 
@@ -50,8 +52,10 @@ preview of its mission tree.
   blocks up to 1444.11.11. `Layers` merges folders, with later roots overriding earlier ones by
   relative path.
 - **Cache:** `.cache/parse.pkl` holds parsed script files (`parse_file()`), `.cache/images.pkl` holds
-  resized images as PNG bytes (`open_image(path, size)`). Keys include path, mtime and size, so edited
-  files are re-read; entries not used in a run are dropped. Delete `.cache/` to force a full rebuild.
+  resized images as PNG bytes (`open_image(path, size)`), the province image result (`province_image`)
+  and the encoded WebP atlases (keyed by an md5 of the sheet). Keys include path, mtime and size, so
+  edited files are re-read; entries not used in a run are dropped. Delete `.cache/` to force a full
+  rebuild.
 - **Map data:** `map/provinces.bmp` and `definition.csv` produce a province-id image, downscaled by
   `SCALE` and encoded into a PNG as R=id>>8, G=id&255. Water comes from `default.map`
   (`sea_starts` and `lakes`) and wasteland from the `impassable` list in `climate.txt`.
@@ -114,9 +118,26 @@ preview of its mission tree.
     branch tabs.
   - Hovering a mission card shows its description and highlights the missions it requires.
   - Ante Bellum mode shows the AB tree; Actum mode shows the Actum tree.
-- **Map rendering:** per-province colour arrays are drawn onto an offscreen canvas with country
-  borders, coastlines and a highlighted outline for the selected tag. Supports zoom (wheel, buttons,
-  pinch), drag to pan, R to reset and Esc to close.
+- **Map rendering: WebGL 2 globe** (the user chose a 3D globe over a flat horizontal wrap).
+  - Pass 1, `paint()`, runs on mode change, select, theme change and tag edits. `provinceColors()` fills
+    per-province data textures (256 wide: colour + stripe flag, stripe colour, owner + water). A shader
+    draws the flat W×H map into a framebuffer texture with country borders and coasts (60 % border),
+    province borders (12 %), the selected country's accent outline and the stripes, then mipmaps it.
+  - Pass 2, `render()`, runs every frame: a full-screen shader ray-casts an orthographic sphere and maps
+    lon/lat to the texture. u covers 360°. v runs linearly from `LAT_TOP` to `LAT_BOTTOM` (75 / −58);
+    these are tunable, and because EU4's map isn't really equirectangular the far north looks stretched.
+    Beyond that band it draws sea. `textureGrad` with a seam-moved copy of u avoids a line at the date
+    line. NEAREST when zoomed in, mipmapped when out.
+  - View = `{lon, lat, R}`. The functions are `rotateBy` (drag), `zoomAt` (wheel/buttons/pinch, keeps the
+    cursor point), `flyTo` (eased), `focusTag` (country bbox → lon/lat and size), `reset` (first
+    favourite, whole globe), and `screenToLonLat` / `pick` for hover and click on the CPU `ids` array.
+  - If `MAX_TEXTURE_SIZE < W`, the id image is downscaled nearest-neighbour for the GPU only.
+  - No WebGL 2 → a message in the hint box.
+- **Theme button** (sun/moon, next to the title): sets `data-theme` on `<html>`, saved in localStorage
+  `aba-mission-map-theme`. A small `<head>` script applies it before first paint, and `retheme()`
+  re-reads the colour tokens (`theme()` caches them).
+- **Music button**: loops `D.music` at volume 0.5. Autoplay is usually refused, so it starts on the first
+  click or key press. A pause is saved in localStorage `aba-mission-map-music`.
 - **Design:** theme tokens on `:root` with dark-mode variants. Fonts are Alegreya SC, Source Sans 3
   and JetBrains Mono.
 
@@ -126,6 +147,9 @@ preview of its mission tree.
   SMO matches its AB series; the earlier miss came from the incomplete cloud files. The 756 ids without
   history are placeholder `definition.csv` slots (id 0, `UnusedLand*`, `RNW`) that never appear on the
   map, so the "no history" warning only counts provinces that are drawn.
-- A warm-cache build takes about 8 s (2026-11-02; about 110 s before the caches, the matching index and
-  the lore dedupe). The output is about 6.1 MB with `SCALE = 1`: mission series ~2.3 MB (descriptions
-  1.56 MB), mission icons 1.4 MB, province image 1 MB, flags 0.75 MB.
+- A warm-cache build takes about 4 s (2026-11-02; about 110 s originally). The output is about 11 MB
+  with `SCALE = 1`: music ~5 MB (base64; the user chose embedding over a separate file), mission series
+  ~2.3 MB (descriptions 1.56 MB), mission icons 1.4 MB, province image 1 MB, flags 0.75 MB.
+- Page timings in headless Edge with SwiftShader (CPU-emulated GPU, so real GPUs are faster): select
+  ~64 ms, back to list ~35 ms, mode switch ~30 ms, one rotate frame ~18 ms.
+- Safari plays Ogg only from Safari 17 (macOS 14 / iOS 17).

@@ -8,6 +8,7 @@ import base64
 import colorsys
 import csv
 import fnmatch
+import hashlib
 import io
 import json
 import os
@@ -40,6 +41,7 @@ TITLE = 'Ante Bellum'
 SUBTITLE = 'Mission Map'
 SCALE = 1                           # map downscale factor; 1 = full resolution (about 4x file size)
 CACHE_DIR = '.cache'                # parsed game files and resized images; delete it to force a full rebuild
+MUSIC_FILE = 'theme.ogg'            # Ogg music embedded in the page, with a play/pause button; '' for none
 
 # defined_text in customizable_localization/ that picks each country's start-screen lore.
 LORE_DEFINED_TEXT = 'AnteBellumCountryLoreDesc'
@@ -543,14 +545,26 @@ def series_for(series, ctx, facts):
 
 # ---------------------------------------------------------------- images
 
-def build_province_image(L, scale):
-    bmp = Image.open(L.file('map/provinces.bmp')).convert('RGB')
+def province_image(L, scale):
+    """{'png': base64 PNG with R = id >> 8, G = id & 255, 'w', 'h', 'on_map': sorted ids drawn, 'names'}.
+    Cached, keyed by provinces.bmp, definition.csv and the scale."""
+    bmp, csv_path = L.file('map/provinces.bmp'), L.file('map/definition.csv')
+
+    def make():
+        ids, names = build_province_image(bmp, csv_path, scale)
+        return {'png': png_b64(ids), 'w': ids.shape[1], 'h': ids.shape[0],
+                'on_map': np.unique(ids).tolist(), 'names': names}
+    return IMAGES.get(Cache.key(bmp, scale) + Cache.key(csv_path), make)
+
+
+def build_province_image(bmp_path, csv_path, scale):
+    bmp = Image.open(bmp_path).convert('RGB')
     W, H = bmp.size
     w, h = W // scale, H // scale
     arr = np.asarray(bmp)[::scale, ::scale][:h, :w].astype(np.uint32)
     key = (arr[..., 0] << 16) | (arr[..., 1] << 8) | arr[..., 2]
     lut, names = {}, {}
-    with open(L.file('map/definition.csv'), encoding='cp1252', errors='replace') as f:
+    with open(csv_path, encoding='cp1252', errors='replace') as f:
         for row in csv.reader(f, delimiter=';'):
             if row and row[0].isdigit() and len(row) >= 4:
                 try:
@@ -616,9 +630,13 @@ def atlas(images, size, cols=32):
         im = images[k]
         sheet.paste(im if im.size == (size, size) else im.resize((size, size), Image.LANCZOS),
                     ((i % cols) * size, (i // cols) * size))
-    buf = io.BytesIO()
-    sheet.save(buf, 'WEBP', quality=82, method=4)
-    return 'data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode(), {k: i for i, k in enumerate(keys)}, cols
+
+    def encode():
+        buf = io.BytesIO()
+        sheet.save(buf, 'WEBP', quality=82, method=4)
+        return 'data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode()
+    uri = IMAGES.get(('atlas', hashlib.md5(sheet.tobytes()).hexdigest(), sheet.size), encode)
+    return uri, {k: i for i, k in enumerate(keys)}, cols
 
 
 def find_files(roots, rel_dir, exts):
@@ -814,8 +832,9 @@ def main():
         }
 
     print('rendering map...', file=sys.stderr)
-    ids, pnames = build_province_image(L, SCALE)
-    nprov = int(ids.max()) + 1
+    pimg = province_image(L, SCALE)
+    pnames, on_map = pimg['names'], set(pimg['on_map'])
+    nprov = max(on_map) + 1
     p_owner, p_kind, p_cul, p_rel = [''] * nprov, [0] * nprov, [''] * nprov, [''] * nprov
     for pid in range(nprov):  # kind: 0 land no owner, 1 owned, 2 water, 3 wasteland, 4 no history
         st = prov.get(pid)
@@ -900,8 +919,8 @@ def main():
 
     data = {
         'title': TITLE,
-        'w': ids.shape[1], 'h': ids.shape[0],
-        'img': png_b64(ids),
+        'w': pimg['w'], 'h': pimg['h'],
+        'img': pimg['png'],
         'owner': p_owner, 'kind': p_kind, 'pcul': p_cul, 'prel': p_rel,
         'pname': [clean_loc(loc.get(f'PROV{i}')) or pnames.get(i, '') for i in range(nprov)],
         'tags': tags, 'lore': lore_list, 'series': out_series,
@@ -910,6 +929,8 @@ def main():
         'flags': {'uri': flags_uri, 'idx': flag_idx, 'cols': flag_cols},
         'relIcons': {'uri': rel_uri, 'idx': rel_idx, 'cols': rel_cols},
         'msnIcons': {'uri': icon_uri, 'cols': icon_cols},
+        'music': base64.b64encode(open(here(MUSIC_FILE), 'rb').read()).decode()
+                 if MUSIC_FILE and os.path.isfile(here(MUSIC_FILE)) else None,
     }
     tpl = open(here('template.html'), encoding='utf-8').read()
     html = tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':'), ensure_ascii=False))
@@ -941,7 +962,7 @@ def main():
     if unlisted_groups:
         print(f'  culture.txt: no colour for these groups (generated instead): {" ".join(unlisted_groups)}',
               file=sys.stderr)
-    on_map = set(np.unique(ids).tolist())  # skips UnusedLand / RNW placeholder ids, which are never drawn
+    # on_map skips the UnusedLand / RNW placeholder ids, which are never drawn
     nh = sum(1 for pid, k in enumerate(p_kind) if k == 4 and pid in on_map)
     if nh:
         print(f'  {nh} provinces on the map have no history file (shown as "no data")', file=sys.stderr)
