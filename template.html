@@ -118,15 +118,16 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
 
 /* mission tree preview */
 .tree { overflow-x: auto; padding-bottom: 6px; }
-.tgrid { display: grid; grid-template-columns: repeat(var(--cols), minmax(74px, 1fr)); gap: 6px 6px; min-width: calc(var(--cols) * 80px); }
-.slot-h { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; min-height: 22px; }
-.slot-h .lbl { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
-.slot-h button { font: 600 .7rem var(--f-mono); border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 2px; padding: 0 5px; cursor: pointer; }
-.slot-h button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 3px; padding: 5px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; cursor: default; min-width: 0; }
+/* EU4-like: one column per slot, rows by position; the row gap leaves room for the arrows */
+.tgrid { position: relative; display: grid; grid-template-columns: repeat(var(--cols), minmax(74px, 1fr)); gap: 24px 8px; min-width: calc(var(--cols) * 80px); }
+.tgrid .arrows { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; color: var(--muted); }
+.tgrid .arrows path.a { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.tabs { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; min-height: 22px; }
+.tabs button { font: 600 .7rem var(--f-mono); border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 2px; padding: 0 5px; cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+.card { position: relative; z-index: 1; background: var(--card); border: 1px solid var(--line); border-radius: 3px; padding: 5px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; cursor: default; min-width: 0; }
 .card .mi { width: 40px; height: 40px; border-radius: 3px; background-color: var(--chip); background-repeat: no-repeat; flex: none; }
 .card .mt { font-size: .72rem; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.card.req { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .card.cur { background: var(--chip); }
 .tip { position: fixed; z-index: 20; max-width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; font-size: .82rem; line-height: 1.4; box-shadow: 0 4px 14px rgb(0 0 0 / .25); pointer-events: none; white-space: pre-line; }
 .tip b { display: block; font-size: .88rem; margin-bottom: 2px; }
@@ -717,38 +718,94 @@ function treeLayout(list) {
   }
   return out;
 }
+// Laid out like EU4: one column per slot (at least 5, empty slots stay empty), one row per position,
+// and arrows from each required mission to the missions that need it.
 function renderTree(list) {
   const lay = treeLayout(list), slots = Object.keys(lay).map(Number).sort((a, b) => a - b);
   const pick = s => Math.min(treeState[s] || 0, lay[s].length - 1);
+  const col = s => Math.max(1, s), cols = Math.max(5, ...slots.map(col));
+  const hasTabs = slots.some(s => lay[s].length > 1), first = hasTabs ? 2 : 1;  // row of position 1
   let maxPos = 1;
   const cells = [], byId = {};
-  slots.forEach((s, ci) => {
-    for (const i of lay[s][pick(s)].series) for (const m of D.series[i].missions) {
-      byId[m.id] = m; maxPos = Math.max(maxPos, m.pos); cells.push({ m, col: ci + 1, row: m.pos + 1, series: D.series[i] });
-    }
-  });
-  const heads = slots.map((s, ci) => {
-    const L = lay[s];
-    const tabs = L.length > 1 ? L.map((l, k) => `<button data-slot="${s}" data-v="${k}" aria-pressed="${k === pick(s)}" title="${esc(l.series.map(i => D.series[i].name).join(', '))}">${String.fromCharCode(65 + k)}</button>`).join('') : '';
-    return `<div class="slot-h" style="grid-column:${ci + 1};grid-row:1"><span class="lbl">Slot ${s || '?'}</span>${tabs}</div>`;
-  }).join('');
+  for (const s of slots) for (const i of lay[s][pick(s)].series) for (const m of D.series[i].missions) {
+    byId[m.id] = m; maxPos = Math.max(maxPos, m.pos); cells.push({ m, col: col(s), row: m.pos + first - 1 });
+  }
+  const tabs = slots.filter(s => lay[s].length > 1).map(s => `<div class="tabs" style="grid-column:${col(s)};grid-row:1">${
+    lay[s].map((l, k) => `<button data-slot="${s}" data-v="${k}" aria-pressed="${k === pick(s)}" title="${esc(l.series.map(i => D.series[i].name).join(', '))}">${String.fromCharCode(65 + k)}</button>`).join('')}</div>`).join('');
   const body = cells.map(({ m, col, row }) => {
     const ic = sprite('msnIcons', m.icon, 40, 'mi') || '<span class="mi"></span>';
-    return `<div class="card" tabindex="0" data-m="${esc(m.id)}" style="grid-column:${col};grid-row:${row}">${ic}<span class="mt">${esc(m.title)}</span></div>`;
+    return `<div class="card" tabindex="0" data-m="${esc(m.id)}" data-c="${col}" data-r="${row}" style="grid-column:${col};grid-row:${row}">${ic}<span class="mt">${esc(m.title)}</span></div>`;
   }).join('');
   const el = $('tree');
-  el.innerHTML = `<div class="tgrid" style="--cols:${slots.length};grid-template-rows:auto repeat(${maxPos}, auto)">${heads}${body}</div>`;
+  el.innerHTML = `<div class="tgrid" style="--cols:${cols};grid-template-rows:${hasTabs ? 'auto ' : ''}repeat(${maxPos}, auto)"><svg class="arrows" aria-hidden="true"></svg>${tabs}${body}</div>`;
   el._missions = byId;
   el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { treeState[b.dataset.slot] = +b.dataset.v; renderTree(list); });
+  const grid = el.firstElementChild;
+  drawArrows(grid);
+  treeResize.disconnect(); treeResize.observe(grid);  // cards are 1fr wide: redraw when the panel resizes
+}
+const treeResize = new ResizeObserver(entries => entries.forEach(e => e.target.isConnected && drawArrows(e.target)));
+// Arrows drawn like EU4's: each arrow leaves its mission's bottom edge and enters its target's top edge on
+// the side it heads to / comes from (same column: the centre; farther ones further out), turns once in
+// the middle of the gap below its source, and a requirement in the same column is one straight line.
+// at: {id: {col, row}}; exit / entry are fractions of the card width.
+function edgePoints(arrows, key) {
+  const left = arrows.filter(a => a[key + 'Dir'] < 0).sort((p, q) => q.dist - p.dist);
+  const right = arrows.filter(a => a[key + 'Dir'] > 0).sort((p, q) => p.dist - q.dist);
+  left.forEach((a, i) => a[key] = .15 + .25 * (left.length < 2 ? .5 : i / (left.length - 1)));
+  right.forEach((a, i) => a[key] = .6 + .25 * (right.length < 2 ? .5 : i / (right.length - 1)));
+  arrows.filter(a => !a[key + 'Dir']).forEach(a => a[key] = .5);
+}
+function arrowRoutes(missions, at) {
+  const arrows = [], outgoing = {}, incoming = {};
+  for (const [id, m] of Object.entries(missions)) for (const r of m.req) {
+    if (!at[id] || !at[r]) continue;
+    const dc = at[id].col - at[r].col, a = { from: r, to: id, down: at[r].row < at[id].row, straight: !dc,
+      exitDir: Math.sign(dc), entryDir: -Math.sign(dc), dist: Math.abs(dc) * 100 + Math.abs(at[id].row - at[r].row) };
+    arrows.push(a); (outgoing[r] = outgoing[r] || []).push(a); (incoming[id] = incoming[id] || []).push(a);
+  }
+  Object.values(outgoing).forEach(l => edgePoints(l, 'exit'));
+  Object.values(incoming).forEach(l => edgePoints(l, 'entry'));
+  // an entry right below an unrelated exit of the card above would look like one line: move it outwards
+  const above = {};
+  for (const [id, p] of Object.entries(at)) above[p.col + ',' + p.row] = id;
+  for (const a of arrows) {
+    const u = above[at[a.to].col + ',' + (at[a.to].row - 1)];
+    if (!u || u === a.from) continue;
+    for (const o of outgoing[u] || []) if (o.to !== a.to && Math.abs(o.exit - a.entry) < .1)
+      a.entry = a.entry < .5 ? Math.max(.08, o.exit - .12) : Math.min(.92, o.exit + .12);
+  }
+  return arrows;
+}
+function drawArrows(grid) {
+  const svg = grid.querySelector('.arrows'), gap = parseFloat(getComputedStyle(grid).rowGap) || 24, cards = {}, at = {};
+  for (const c of grid.querySelectorAll('.card')) {
+    cards[c.dataset.m] = { left: c.offsetLeft, width: c.offsetWidth, top: c.offsetTop, bottom: c.offsetTop + c.offsetHeight };
+    at[c.dataset.m] = { col: +c.dataset.c, row: +c.dataset.r };
+  }
+  let paths = '';
+  for (const r of arrowRoutes(grid.parentElement._missions, at)) {
+    const a = cards[r.from], b = cards[r.to], s = r.down ? 1 : -1;
+    const y1 = r.down ? a.bottom : a.top, y2 = r.down ? b.top - 1 : b.bottom + 1, ex = b.left + b.width * r.entry;
+    const sx = r.straight ? ex : a.left + a.width * r.exit;  // same column: one straight line
+    let d = `M${sx} ${y1}`;
+    if (Math.abs(ex - sx) < 1) d += `V${y2}`;
+    else {  // down to the middle of the gap below the source, across, then down into the target; rounded corners
+      const hy = y1 + s * gap / 2, dir = Math.sign(ex - sx), k = Math.min(3, Math.abs(ex - sx) / 2);
+      d += `V${hy - s * k}Q${sx} ${hy} ${sx + dir * k} ${hy}H${ex - dir * k}Q${ex} ${hy} ${ex} ${hy + s * k}V${y2}`;
+    }
+    paths += `<path class="a" d="${d}" marker-end="url(#arrowhead)"/>`;
+  }
+  svg.setAttribute('width', grid.scrollWidth); svg.setAttribute('height', grid.scrollHeight);
+  svg.innerHTML = `<defs><marker id="arrowhead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="currentColor"/></marker></defs>${paths}`;
 }
 const tip = $('tip');
-function hideTip() { tip.hidden = true; document.querySelectorAll('.card.req, .card.cur').forEach(c => c.classList.remove('req', 'cur')); }
+function hideTip() { tip.hidden = true; document.querySelectorAll('.card.cur').forEach(c => c.classList.remove('cur')); }
 function showTip(card) {
   const tree = $('tree'); if (!tree) return;
   const m = tree._missions[card.dataset.m]; if (!m) return;
   hideTip();
   card.classList.add('cur');
-  for (const r of m.req) { const c = tree.querySelector(`.card[data-m="${CSS.escape(r)}"]`); if (c) c.classList.add('req'); }
   const reqNames = m.req.map(r => tree._missions[r] ? tree._missions[r].title : r);
   tip.innerHTML = `<b>${esc(m.title)}</b>${esc(m.desc || '')}${reqNames.length ? `<div class="r">Requires: ${esc(reqNames.join(', '))}</div>` : ''}`;
   tip.hidden = false;

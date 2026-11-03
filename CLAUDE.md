@@ -126,9 +126,22 @@ preview of its mission tree.
   development); a Lore section; then a section that depends on the mode: mission tree preview
   (Ante Bellum / Actum), religion icon + group + description (Religion), or the culture group with all
   its cultures as chips, the country's own highlighted (Culture).
-  - The preview uses one column per slot. Series in the same slot whose positions overlap become A/B/C
-    branch tabs.
-  - Hovering a mission card shows its description and highlights the missions it requires.
+  - The preview is laid out like EU4: one column per slot, always at least 5 (unused slots stay empty),
+    one row per position, no "Slot N" labels. Series in the same slot whose positions overlap become
+    A/B/C branch tabs (a tab row appears only when some slot has them).
+  - `drawArrows` draws SVG arrows behind the cards from each required mission to the missions needing
+    it, routed by `arrowRoutes` the way EU4 does (the user compared against EU4's Andalusia tree and
+    rejected a staggered-lane version as unbalanced): every arrow turns once, in the middle of the
+    fixed 24 px gap below its source. Exit/entry points (`edgePoints`) are on the side the arrow heads
+    to / comes from: left ones spread over 15–40 % of the card width (farther ones further out), right
+    ones over 60–85 %, same-column arrows at the centre as one straight line. If an entry would line up
+    with an unrelated exit of the card directly above (which reads as one line), it is moved outwards.
+    A `ResizeObserver` redraws the arrows when the panel width changes. Known quirk (like EU4): an arrow
+    that skips a row runs behind any card in between.
+  - Hovering a mission card shows its description and "Requires: …" (required missions are no longer
+    highlighted; the user prefers EU4's arrows).
+  - Testing tip: headless Edge with SwiftShader (`--use-angle=swiftshader`) crashed the user's laptop
+    twice; test panel/tree changes with `--disable-gpu` (no globe, light) and one browser at a time.
   - Ante Bellum mode shows the AB tree; Actum mode shows the Actum tree.
 - **Map rendering: WebGL 2 globe** (the user chose a 3D globe over a flat horizontal wrap).
   - Pass 1, `paint()`, runs on mode change, select, theme change and tag edits. `provinceColors()` fills
