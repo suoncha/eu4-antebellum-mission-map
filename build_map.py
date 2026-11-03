@@ -116,7 +116,7 @@ class Cache:
 
     @staticmethod
     def key(path, *extra):
-        st = os.stat(path)
+        st = STATS.get(path) or os.stat(path)
         return (os.path.normcase(path), st.st_mtime_ns, st.st_size) + extra
 
     def get(self, key, make):
@@ -170,6 +170,19 @@ def history_at(items, date=START_DATE):
 
 # ---------------------------------------------------------------- layered file access
 
+STATS = {}  # path -> stat from the directory listings (free on Windows), so Cache.key needs no os.stat
+
+
+def walk(d):
+    """Paths of all files under d, recording their stats in STATS."""
+    for e in os.scandir(d):
+        if e.is_dir():
+            yield from walk(e.path)
+        else:
+            STATS[e.path] = e.stat()
+            yield e.path
+
+
 class Layers:
     def __init__(self, roots):
         self.roots = roots
@@ -181,11 +194,9 @@ class Layers:
             d = os.path.join(r, rel_dir)
             if not os.path.isdir(d):
                 continue
-            for dp, _, fns in os.walk(d):
-                for fn in fns:
-                    if fn.lower().endswith(ext):
-                        p = os.path.join(dp, fn)
-                        out[os.path.relpath(p, d)] = p
+            for p in walk(d):
+                if p.lower().endswith(ext):
+                    out[os.path.relpath(p, d)] = p
         return dict(sorted(out.items()))
 
     def file(self, rel):
@@ -332,7 +343,7 @@ def load_sprites(L):
     """{sprite name: texture path} from interface/*.gfx."""
     out = {}
     for _, p in L.files('interface', ('.gfx',)).items():
-        for m in re.finditer(r'name\s*=\s*"?([\w.]+)"?\s*texturefile\s*=\s*"([^"]+)"', read_text(p)):
+        for m in re.finditer(r'name\s*=\s*"?([^"\s{}]+)"?\s*texturefile\s*=\s*"([^"]+)"', read_text(p)):
             out[m.group(1)] = m.group(2).replace('//', '/')
     return out
 
@@ -780,6 +791,23 @@ GAME_MAP_FILES = ['map/default.map', 'map/climate.txt', 'map/area.txt', 'map/reg
                   'map/continent.txt']
 
 
+def game_texts(g):
+    """Display texts that depend only on the game files, so they are cached with them: country names and
+    lore (the lore choice evaluates every lore trigger for every country), mission titles and
+    descriptions, province names."""
+    loc, names, lore = g['loc'], {}, {}
+    for t in sorted({st['owner'] for st in g['prov'].values() if st['owner']}):
+        st = g['hist'].get(t, {})
+        ctx = Ctx(t, st, g['cgroups'], g['religions'], g['geo'])
+        names[t] = clean_loc(loc.get(t)) or t
+        key = next((k for k, trig in g['lore_texts'] if ev_block(trig, ctx) is True), None)
+        lore[t] = clean_loc(fill_placeholders(loc.get(key), t, st, names[t], loc))
+    missions = {m['id'] for s in g['series_aba'] + g['series_ab'] for m in s['missions']}
+    return {'names': names, 'lore': lore,
+            'mission_texts': {i: (clean_loc(loc.get(i + '_title')) or i, clean_loc(loc.get(i + '_desc'))) for i in missions},
+            'prov_names': {k: clean_loc(v) for k, v in loc.items() if k.startswith('PROV') and k[4:].isdigit()}}
+
+
 def load_game(L, Lab):
     """Everything read from the game files, cached as one object keyed by every input file (and this
     script), so a build with unchanged game files skips parsing and processing them."""
@@ -802,6 +830,7 @@ def load_game(L, Lab):
             'wasteland': load_ids_list(parse_file(L.file('map/climate.txt')), 'impassable'),
             'series_aba': load_series(L), 'series_ab': load_series(Lab), 'sprites': load_sprites(L),
         }
+        game.update(game_texts(game))
         PARSED.save()
         return game
     cache = Cache('game.pkl')
@@ -830,7 +859,7 @@ def main():
     game = load_game(L, Lab)
     loc, colors, hist, prov = game['loc'], game['colors'], game['hist'], game['prov']
     cgroups, corder, cmembers = game['cgroups'], game['corder'], game['cmembers']
-    religions, geo, lore_texts = game['religions'], game['geo'], game['lore_texts']
+    religions, geo = game['religions'], game['geo']
     water, wasteland, sprites = game['water'], game['wasteland'], game['sprites']
     series_aba = game['series_aba'] if ACTUM_MODE else []
     series_ab = [s for s in game['series_ab'] if fnmatch.fnmatch(s['file'].lower(), AB_MISSION_FILES.lower())]
@@ -847,7 +876,7 @@ def main():
             dev[st['owner']] = dev.get(st['owner'], 0) + st['dev']
 
     # mission series: keep only those some tag gets, deduplicated across the two layers
-    out_series, sid = [], {}
+    out_series, sid, texts = [], {}, game['mission_texts']
 
     def keep(s):
         key = (s['file'], s['name'], json.dumps(s['missions']))
@@ -855,8 +884,7 @@ def main():
             sid[key] = len(out_series)
             out_series.append({
                 'name': s['name'], 'file': s['file'], 'slot': s['slot'],
-                'missions': [{**m, 'title': clean_loc(loc.get(m['id'] + '_title')) or m['id'],
-                              'desc': clean_loc(loc.get(m['id'] + '_desc'))} for m in s['missions']],
+                'missions': [{**m, 'title': texts[m['id']][0], 'desc': texts[m['id']][1]} for m in s['missions']],
             })
         return sid[key]
 
@@ -880,9 +908,7 @@ def main():
                       else series_for(series_ab, ctx, facts))
             if not ab_idx:
                 ab_no_tree.append(t)
-        name = clean_loc(loc.get(t)) or t
-        lore_key = next((k for k, trig in lore_texts if ev_block(trig, ctx) is True), None)
-        lore = clean_loc(fill_placeholders(loc.get(lore_key), t, st, name, loc))
+        name, lore = game['names'][t], game['lore'][t]
         if lore not in lore_idx:
             lore_idx[lore] = len(lore_list)
             lore_list.append(lore)
@@ -978,6 +1004,15 @@ def main():
     for s in out_series:
         for m in s['missions']:
             m['icon'] = msn_icons['idx'].get(m['icon'], -1)
+    # compact missions: [index, icon, position, [required indexes], title, description] instead of objects
+    # keyed by long mission ids (the page turns them back into objects)
+    mindex = {}
+    for s in out_series:
+        for m in s['missions']:
+            mindex.setdefault(m['id'], len(mindex))
+    for s in out_series:
+        s['missions'] = [[mindex[m['id']], m['icon'], m['pos'], [mindex.get(r, r) for r in m['req']], m['title'], m['desc']]
+                         for m in s['missions']]
     tag_bbox = {}  # per country, merged from its provinces' boxes
     for pid, b in pimg['bbox'].items():
         t = p_owner[pid] if pid < nprov else ''
@@ -989,7 +1024,7 @@ def main():
         'title': TITLE, 'actum': ACTUM_MODE,
         'w': pimg['w'], 'h': pimg['h'], 'bbox': tag_bbox,
         'owner': p_owner, 'kind': p_kind, 'pcul': p_cul, 'prel': p_rel,
-        'pname': [clean_loc(loc.get(f'PROV{i}')) or pnames.get(i, '') for i in range(nprov)],
+        'pname': [game['prov_names'].get(f'PROV{i}') or pnames.get(i, '') for i in range(nprov)],
         'tags': tags, 'lore': lore_list, 'series': out_series,
         'cultures': cul_out, 'cgroups': grp_out, 'groupCultures': group_cultures, 'religions': rel_out,
         'dedicated': dedicated, 'additional': additional, 'favorites': favorites, 'abTree': ab_tree,

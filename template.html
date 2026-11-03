@@ -6,7 +6,10 @@
 <title>__TITLE__ Mission Map</title>
 <script>try { const t = localStorage.getItem('aba-mission-map-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- fonts load without blocking the page: text shows in a fallback font until they arrive -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap" onload="this.onload = null; this.rel = 'stylesheet'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap"></noscript>
 <style>
 /* Layout: full-height map table; header strip on top; ledger panel docked right (bottom sheet on phones);
    map modes float top-centre over the map, bookmark shields bottom-centre, like the game's start screen */
@@ -185,6 +188,9 @@ const BINARY = /*__BINARY__*/null;
 const unpack = async (b64, type) => (await fetch(`data:${type};base64,${b64}`)).blob();
 const D = JSON.parse(await new Response((await unpack('/*__DATA__*/', 'application/octet-stream')).stream()
   .pipeThrough(new DecompressionStream('gzip'))).text());
+// missions come compact from the build: [index, icon, position, [required indexes], title, description]
+for (const s of D.series) s.missions = s.missions.map(([id, icon, pos, req, title, desc]) =>
+  ({ id: String(id), icon, pos, req: req.map(String), title, desc }));
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = n => n.toLocaleString('en-US');
@@ -245,19 +251,26 @@ const W = D.w, H = D.h, NP = D.owner.length;
 const tagIndex = {}; Object.keys(D.tags).forEach((t, i) => tagIndex[t] = i);
 const ownerIdx = new Int32Array(NP).map((_, p) => D.owner[p] ? tagIndex[D.owner[p]] ?? -2 : -1);
 const bbox = D.bbox;  // per country [x0, y0, x1, y1], from the build
-let selected = null, ready = false, idCanvas = null;
+let selected = null, ready = false, mapImage = null, idCanvas = null;
 
-// province id at a map pixel, read one pixel at a time for hover and click (no full copy of the map)
-const idAt = (x, y) => { const p = idCanvas.getImageData(x, y, 1, 1).data; return (p[0] << 8) | p[1]; };
-
-const img = new Image();
-img.onload = () => {
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
-  idCanvas = c.getContext('2d', { willReadFrequently: true }); idCanvas.drawImage(img, 0, 0);
-  if (!gl) { $('hint').textContent = 'This map needs a browser with WebGL 2.'; return; }
-  initGL(img); ready = true; paint(); reset(false);
+// province id at a map pixel, read one pixel at a time for hover and click (no full copy of the map);
+// the 2D copy of the id image it reads from is made on the first hover or click, not at load
+const idAt = (x, y) => {
+  if (!idCanvas) {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    idCanvas = c.getContext('2d', { willReadFrequently: true }); idCanvas.drawImage(mapImage, 0, 0);
+  }
+  const p = idCanvas.getImageData(x, y, 1, 1).data; return (p[0] << 8) | p[1];
 };
-img.src = 'data:image/webp;base64,' + BINARY.img;
+
+// the id image is decoded off the main thread, exactly (no colour conversion), then goes to the GPU
+unpack(BINARY.img, 'image/webp')
+  .then(b => createImageBitmap(b, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }))
+  .then(bmp => {
+    mapImage = bmp;
+    if (!gl) { $('hint').textContent = 'This map needs a browser with WebGL 2.'; return; }
+    initGL(bmp); ready = true; paint(); reset(false);
+  });
 
 // per-province colours for the current mode, as RGBA rows for the province data textures (alpha = striped)
 const PW = 256, PH = Math.ceil(NP / PW);

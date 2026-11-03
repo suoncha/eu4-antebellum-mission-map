@@ -36,7 +36,9 @@ preview of its mission tree.
   also renders correctly when served without a charset header, as on the user's Cloudflare Worker). All
   images (province-id lossless WebP, AVIF atlases) and the music (Ogg Opus) are embedded. On load the
   atlases become `blob:` URLs: with data URIs in `var(--flags)` every sprite re-parsed megabytes, which
-  made selecting a country take 2.9 s. The music is unpacked in the background.
+  made selecting a country take 2.9 s. The music is unpacked in the background. Missions are embedded
+  compact (`[index, icon, pos, [required indexes], title, desc]`, numeric ids) and expanded into objects
+  right after loading. Google Fonts load via `rel=preload` + `onload` so they don't block the first paint.
 
 ## User's preferences and decisions
 
@@ -59,8 +61,11 @@ preview of its mission tree.
 - **Cache** (`.cache/`, keys include path, mtime and size; entries not used in a run are dropped; delete
   the folder to force a full rebuild):
   - `game.pkl`: everything `load_game()` reads from the game files (localisation, colours, histories,
-    cultures, religions, geography, lore texts, mission series, sprites), keyed by every input file and
-    this script itself. With unchanged game files nothing is parsed (`parse.pkl` is only opened on a miss).
+    cultures, religions, geography, lore texts, mission series, sprites) plus `game_texts()`: cleaned
+    country names, each country's chosen lore, mission titles/descriptions and province names. Keyed by
+    every input file and this script itself. With unchanged game files nothing is parsed (`parse.pkl` is
+    only opened on a miss). File dates come from the directory listing (`walk()` fills `STATS`, free on
+    Windows), so checking ~10,500 files needs no separate `os.stat` calls.
   - `parse.pkl`: parsed script files (`parse_file()`), used when `game.pkl` misses.
   - `images.pkl`: resized images as PNG bytes (`open_image`), the province image + per-province bboxes
     (`province_image`), the encoded atlases (`atlas()`, keyed by its entries' cache keys, so an unchanged
@@ -157,7 +162,8 @@ preview of its mission tree.
     cursor point), `flyTo` (eased), `focusTag` (country bbox → lon/lat and size), `reset` (first
     favourite, whole globe), and `screenToLonLat` / `pick` for hover and click. `pick` reads the one
     pixel under the cursor from a 2D canvas of the id image (`idAt`, ~0.03 ms) instead of keeping a
-    copy of all 11.5 M pixels (that copy cost ~0.2 s at load and ~70 MB of memory).
+    copy of all 11.5 M pixels; that 2D canvas is only created on the first hover/click. The id image is
+    decoded off the main thread with `createImageBitmap(…, {colorSpaceConversion: 'none'})` (exact ids).
   - If `MAX_TEXTURE_SIZE < W`, the id image is downscaled nearest-neighbour for the GPU only.
   - No WebGL 2 → a message in the hint box.
 - **Theme button** (sun/moon, next to the title): sets `data-theme` on `<html>`, saved in localStorage
@@ -174,11 +180,15 @@ preview of its mission tree.
   SMO matches its AB series; the earlier miss came from the incomplete cloud files. The 756 ids without
   history are placeholder `definition.csv` slots (id 0, `UnusedLand*`, `RNW`) that never appear on the
   map, so the "no history" warning only counts provinces that are drawn.
-- A warm-cache build takes about 1.7 s (2026-11-02; ~110 s originally, 4 s before the game cache). The
+- A warm-cache build takes about 1.0 s (2026-11-04; ~110 s originally, 4 s before the game cache, 1.7 s
+  before caching the per-country texts). A build after a game file or build_map.py change takes ~11–16 s. The
   output is about 4.6 MB with `SCALE = 1` (was 11.2 MB): music ~2 MB (Opus 64k base64; the user chose
   embedding over a separate file), gzipped text data ~1 MB, atlases ~1 MB, province image 0.4 MB.
 - Page timings in headless Edge with SwiftShader (CPU-emulated GPU, so real GPUs are faster, and the
   numbers are noisy): startup script ~0.8 s (was ~1.8 s); map ready ~2.7 s, dominated by emulated GPU
   setup; select ~15–50 ms, back to list ~50 ms, mode switch ~5–15 ms. Use real time (`--timeout`), not
   `--virtual-time-budget`, when timing: the virtual clock gave 0 ms readings inside module code.
+  `--dump-dom` / `--screenshot` capture at the page's load event, and the module's async work (data
+  unpack, ~1 MB `fetch('data:…')`) can finish just after it, so a probe never runs. In test copies, delay
+  the load event, e.g. `<img src="https://httpbin.org/delay/4" hidden>` in `<body>`.
 - Safari plays Ogg only from Safari 17 (macOS 14 / iOS 17).
