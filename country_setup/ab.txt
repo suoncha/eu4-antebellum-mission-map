@@ -272,3 +272,6 @@ ZAZ  # Zaporizhzhia - found: AB_Rus_HTM.txt
 ZHH  # Zhou - found: AB_Asia_CLE.txt
 ZKD  # Zikids - found: AB_Persia_PER.txt
 ZNG  # Zangids - found: AB_Anatolia_RUM_Christian.txt
+CYP = AB_Anatolia_LAT.txt
+ATI = AB_Anatolia_LAT.txt
+KNI = AB_Anatolia_LAT.txt
