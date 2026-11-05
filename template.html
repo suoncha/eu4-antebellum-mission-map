@@ -128,6 +128,9 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
 .tabs { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; min-height: 22px; }
 .tabs button { font: 600 .7rem var(--f-mono); border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 2px; padding: 0 5px; cursor: pointer; }
 .tabs button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+.forms { margin: 0 0 8px; gap: 4px; }
+.forms button { display: inline-flex; align-items: center; gap: 5px; font: 600 .78rem var(--f-body); padding: 3px 8px; }
+.forms .flag { flex: none; }
 .card { position: relative; z-index: 1; background: var(--card); border: 1px solid var(--line); border-radius: 3px; padding: 5px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; cursor: default; min-width: 0; }
 .card .mi { width: 40px; height: 40px; border-radius: 3px; background-color: var(--chip); background-repeat: no-repeat; flex: none; }
 .card .mt { font-size: .72rem; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -665,6 +668,7 @@ panel.addEventListener('toggle', e => {
 }, true);
 
 // ---------------------------------------------------------------- side panel: country detail
+const formState = {};  // chosen switchable tree per tag (ab.txt "A | B: files")
 function select(t, focus = true) {
   selected = t; paint(); renderShields();
   $('back').hidden = !t;
@@ -680,7 +684,8 @@ function renderDetail() {
   const status = mode === 'actum' ? (st === 2 ? '<span class="chip d">Dedicated mission tree</span>' : st === 1 ? '<span class="chip d">Additional content</span>' : '')
     : mode === 'ante-bellum' && ABT.has(t) ? '<span class="chip d">Ante Bellum mission tree</span>' : '';
   const useAB = mode === 'ante-bellum';
-  const list = (useAB ? x.ab : x.aba) || [];
+  const forms = useAB && x.abForms, form = forms ? Math.min(formState[t] || 0, forms.length - 1) : 0;
+  const list = (forms ? forms[form].ab : useAB ? x.ab : x.aba) || [];
   const showTree = mode === 'actum' || mode === 'ante-bellum';
   const sec = (id, title, cnt, body) => `<details data-sec="${id}"${openState[id] ?? true ? ' open' : ''}><summary><span>${title}</span><span class="cnt">${cnt}</span></summary><div class="body">${body}</div></details>`;
   let extra;
@@ -696,6 +701,7 @@ function renderDetail() {
   } else {
     extra = sec('tree', 'Mission tree', list.length ? list.reduce((n, i) => n + D.series[i].missions.length, 0) + ' missions' : '', `
       <p class="src">${useAB ? 'As in Ante Bellum' : `As in ${esc(D.title)}`}${list.length ? ' · hover a mission for details' : ''}</p>
+      ${forms ? `<div class="tabs forms">${forms.map((f, k) => `<button data-form="${k}" aria-pressed="${k === form}">${f.tag ? flag(f.tag, 18) : ''}${esc(f.label)}</button>`).join('')}</div>` : ''}
       ${list.length ? `<div class="tree" id="tree"></div>` : '<p class="empty">No mission tree. This country uses the generic missions.</p>'}`);
   }
   panel.innerHTML = `
@@ -710,6 +716,9 @@ function renderDetail() {
       ${D.lore[x.lore] ? `<p class="lore">${esc(D.lore[x.lore])}</p>` : '<p class="empty">No lore text for this country in the game files.</p>'}</div></details>
     ${extra}`;
   panel.scrollTop = 0;
+  panel.querySelectorAll('[data-form]').forEach(b => b.onclick = () => {
+    const y = panel.scrollTop; formState[t] = +b.dataset.form; treeState = {}; renderDetail(); panel.scrollTop = y;
+  });
   if (showTree && list.length) renderTree(list);
 }
 

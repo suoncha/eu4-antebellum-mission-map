@@ -726,15 +726,24 @@ def read_tags(path):
 
 
 def read_tag_map(path):
-    """{TAG: [mission files] or None}, one tag per line, optionally 'TAG = file file ...'. Missing file = empty."""
+    """{TAG: [(label, [mission files] or None), ...]}: one tag per line, optionally 'TAG = file file ...'.
+    Switchable trees are separated by '|', each 'Label: files' (the first is the original; its label is
+    optional and empty files mean auto-detect). Missing file = empty."""
     out = {}
     if not os.path.isfile(path):
         return out
     for line in open(path, encoding='utf-8-sig'):
-        tag, eq, files = line.split('#')[0].partition('=')
+        tag, eq, rest = line.split('#')[0].partition('=')
         tag = tag.strip().upper()
-        if tag:
-            out[tag] = files.split() if eq else None
+        if not tag:
+            continue
+        variants = []
+        for part in rest.split('|') if eq else ['']:
+            label, colon, files = part.partition(':')
+            if not colon:
+                label, files = '', part
+            variants.append((label.strip(), files.split() or None))
+        out[tag] = variants
     return out
 
 
@@ -891,7 +900,8 @@ def main():
     # Ante Bellum trees only for the tags in ab.txt: their mapped files, or else the AB series they match
     alive_set = set(alive)
     ab_tree = [t for t in ab_map if t in alive_set]
-    ab_bad_files = sorted({f for fs in ab_map.values() if fs for f in fs if f.lower() not in ab_by_file})
+    ab_bad_files = sorted({f for vs in ab_map.values() for _, fs in vs if fs for f in fs if f.lower() not in ab_by_file})
+    form_tags = {lb.upper() for vs in ab_map.values() for lb, _ in vs if lb.upper() in colors}
     ab_no_tree = []
 
     lore_list, lore_idx = [], {}  # distinct lore texts; many tags share a regional one
@@ -901,13 +911,16 @@ def main():
         ctx = Ctx(t, st, cgroups, religions, geo)
         facts = identity_facts(ctx)
         aba_idx = series_for(series_aba, ctx, facts)
-        ab_idx = []
+        ab_idx, ab_forms = [], []
         if t in ab_map:
-            files = ab_map[t]
-            ab_idx = ([i for f in files for i in ab_by_file.get(f.lower(), [])] if files
-                      else series_for(series_ab, ctx, facts))
-            if not ab_idx:
-                ab_no_tree.append(t)
+            for k, (label, files) in enumerate(ab_map[t]):
+                idx = ([i for f in files for i in ab_by_file.get(f.lower(), [])] if files
+                       else series_for(series_ab, ctx, facts))
+                if k == 0:
+                    ab_idx = idx
+                    if not idx:
+                        ab_no_tree.append(t)
+                ab_forms.append((label, idx))
         name, lore = game['names'][t], game['lore'][t]
         if lore not in lore_idx:
             lore_idx[lore] = len(lore_list)
@@ -920,6 +933,14 @@ def main():
             'aba': [keep(series_aba[i]) for i in aba_idx],
             'ab': [keep(series_ab[i]) for i in ab_idx],
         }
+        if len(ab_forms) > 1:  # switchable trees: a label that is a tag means forming that country
+            def form(label, idx):
+                f = {'label': label, 'ab': [keep(series_ab[i]) for i in idx]}
+                if label.upper() in form_tags:
+                    f['tag'] = label.upper()
+                    f['label'] = 'Form ' + (clean_loc(loc.get(f['tag'])) or f['tag'])
+                return f
+            tags[t]['abForms'] = [form(lb or name, idx) for lb, idx in ab_forms]
 
     print('rendering map...', file=sys.stderr)
     pimg = province_image(L, SCALE)
@@ -968,7 +989,7 @@ def main():
 
     print('packing flags and icons...', file=sys.stderr)
     flag_files = find_files(full_roots, 'gfx/flags', {'.tga', '.png', '.dds'})
-    want = set(alive) | set(dedicated) | set(additional) | set(favorites)
+    want = set(alive) | set(dedicated) | set(additional) | set(favorites) | form_tags
     flags = atlas({t: image_entry(flag_files[t], 64) for t in sorted(want) if t in flag_files}, 64)
 
     strip_path = texture(full_roots, sprites.get('GFX_icon_religion', 'gfx/interface/icon_religion.dds'))

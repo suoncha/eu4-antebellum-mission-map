@@ -4,40 +4,43 @@
 # One tag per line. The script finds the tag's tree in the AB_*.txt mission files by itself, using
 # the 1444 tag, culture, religion, government reforms and so on.
 # To choose the files yourself, write them after "=", e.g.:   ZUN = AB_Persia_PER.txt
+# Switchable trees (formables, alternatives) are separated by "|", each written as "Label: files". The
+# first one is the original tree; its label is optional and leaving its files empty means auto-detect.
+# A label that is a country tag shows as "Form <country>", e.g.:   ODA = | JAP: AB_Asia_JAP.txt
 # "found:" comments show what the script detected when this file was generated. Lines starting with
 # # are ignored.
 
-AAC  # Aachen - found: AB_German_RHL.txt
+AAC = | GER: AB_German_ZZZ.txt  # Aachen - found: AB_German_RHL.txt
 ADU  # Andalusia - found: AB_Iberian_ADU.txt
 AII  # Asti - found: AB_Italian_IVR.txt
 AKG  # Akgunids - found: AB_Anatolia_RUM_Muslim.txt
 AKR  # Chepnids - found: AB_Anatolia_RUM_Muslim.txt
-AKT  # Ando - found: AB_Asia_DaimyoFree.txt
+AKT = | JAP: AB_Asia_JAP.txt  # Ando - found: AB_Asia_DaimyoFree.txt
 ALN  # Alania - found: AB_Rus_ALN.txt
-AMA  # Amago - found: AB_Asia_DaimyoVassal.txt
+AMA = | JAP: AB_Asia_JAP.txt  # Amago - found: AB_Asia_DaimyoVassal.txt
 AMD  # Amdo - found: AB_Asia_AMD.txt
 ANC  # Ancona - found: AB_Italian_PAP.txt
-ANS  # Ansbach - found: AB_German_FKN.txt
+ANS = | GER: AB_German_ZZZ.txt  # Ansbach - found: AB_German_FKN.txt
 ANU  # Ainu - found: AB_Asia_ANU.txt
-ASG  # Aisin Gioro - found: AB_Steppe_ASG.txt
-ASU  # Asturias - found: AB_Iberian_ASU.txt
+ASG = | QNG: AB_Asia_JIN.txt # Aisin Gioro - found: AB_Steppe_ASG.txt
+ASU = | IBE: AB_Iberian_IBE.txt # Asturias - found: AB_Iberian_ASU.txt
 ATG  # Anushteginids - found: AB_Anatolia_RUM_Christian.txt
-AUG  # Augsburg - found: AB_German_SWA.txt
-AWG  # Awaga - found: AB_Asia_DaimyoVassal.txt
-BAD  # Baden - found: AB_German_SWA.txt
-BAM  # Bamberg - found: AB_German_FKN.txt
-BAV  # Bavaria - found: AB_German_BAV.txt
+AUG = | GER: AB_German_ZZZ.txt  # Augsburg - found: AB_German_SWA.txt
+AWG = | JAP: AB_Asia_JAP.txt  # Awaga - found: AB_Asia_DaimyoVassal.txt
+BAD = | GER: AB_German_ZZZ.txt  # Baden - found: AB_German_SWA.txt
+BAM = | GER: AB_German_ZZZ.txt  # Bamberg - found: AB_German_FKN.txt
+BAV = | GER: AB_German_ZZZ.txt  # Bavaria - found: AB_German_BAV.txt
 BLO  # Beloozero - found: AB_Rus_UKR.txt
 BOH  # Bohemia - found: AB_Slavic_BOH.txt
 BRB  # Brabant - found: AB_German_NED.txt
-BRG  # Berg - found: AB_German_RHL.txt
+BRG = | GER: AB_German_ZZZ.txt  # Berg - found: AB_German_RHL.txt
 BRI  # Brittany - found: AB_Gaelic_BRI.txt
-BSS  # Bessho - found: AB_Asia_DaimyoVassal.txt
-BUL  # Bulgaria - found: AB_Balkan_BUL.txt
-BYT  # Bayreuth - found: AB_German_FKN.txt
-BYZ  # Byzantium - found: AB_Anatolia_BYZ.txt
+BSS = | JAP: AB_Asia_JAP.txt  # Bessho - found: AB_Asia_DaimyoVassal.txt
+BUL = | ALB: AB_Balkan_ALB.txt # Bulgaria - found: AB_Balkan_BUL.txt
+BYT = | GER: AB_German_ZZZ.txt  # Bayreuth - found: AB_German_FKN.txt
+BYZ = | TUR: AB_Anatolia_TUR.txt # Byzantium - found: AB_Anatolia_BYZ.txt
 CAP  # Capua - found: AB_Italian_CAP.txt
-CCR  # Chur - found: AB_German_HLV.txt
+CCR = | GER: AB_German_ZZZ.txt  # Chur - found: AB_German_HLV.txt
 CDL  # Dali - found: AB_Asia_CLE.txt
 CHR  # Chernihiv - found: AB_Rus_UKR.txt
 CLC  # Cilicia - found: AB_Anatolia_CLC.txt
@@ -46,155 +49,155 @@ COT  # Connacht - found: AB_Gaelic_COT.txt
 CRK  # Cork - found: AB_Gaelic_FNG.txt
 CRN  # Cornwall - found: AB_Gaelic_CRN.txt
 CRO  # Croatia - found: AB_Balkan_CRO.txt
-CRS  # Choros - found: AB_Steppe_OIR.txt
+CRS = | MGL: AB_Steppe_MGL.txt # Choros - found: AB_Steppe_OIR.txt
 CUR  # Curonia - found: AB_Baltic_SMG.txt
 DAN  # Denmark - found: AB_North_DAN.txt
 DNZ  # Danzig - found: AB_German_TEU.txt
-DRB  # Dorbet - found: AB_Steppe_OIR.txt
-DRE  # Dresden - found: AB_German_PRU.txt
-DTE  # Date - found: AB_Asia_DaimyoFree.txt
+DRB = | MGL: AB_Steppe_MGL.txt # Dorbet - found: AB_Steppe_OIR.txt
+DRE = | GER: AB_German_ZZZ.txt  # Dresden - found: AB_German_PRU.txt
+DTE = | JAP: AB_Asia_JAP.txt  # Date - found: AB_Asia_DaimyoFree.txt
 DUB  # Dublin - found: AB_Gaelic_FNG.txt
-DWT  # Donauwörth - found: AB_German_SWA.txt
-EJZ  # Nanai - found: AB_Asia_JIN.txt
+DWT = | GER: AB_German_ZZZ.txt  # Donauwörth - found: AB_German_SWA.txt
+EJZ = | QNG: AB_Asia_JIN.txt # Nanai - found: AB_Asia_JIN.txt
 ENG  # Ængland - found: AB_North_ENG.txt
 EST  # Estonia - found: AB_Baltic_EST.txt
 FEO  # Theodoro - found: AB_Rus_FEO.txt
 FIN  # Finland - found: AB_Baltic_FIN.txt
-FKN  # Franconia - found: AB_German_FKN.txt
+FKN = | GER: AB_German_ZZZ.txt  # Franconia - found: AB_German_FKN.txt
 FLY  # Offaly - found: AB_Gaelic_IRE.txt
-FRC  # Francia - found: AB_France_FRC.txt
+FRC = | FRA: AB_France_FRA.txt # Francia - found: AB_France_FRC.txt
 FRI  # Friesland - found: AB_German_NED.txt
-FRN  # Frankfurt - found: AB_German_RHL.txt
-GAL  # Galicia - found: AB_Iberian_ASU.txt
+FRN = | GER: AB_German_ZZZ.txt  # Frankfurt - found: AB_German_RHL.txt
+GAL = | IBE: AB_Iberian_IBE.txt # Galicia - found: AB_Iberian_ASU.txt
 GEL  # Gelre - found: AB_German_NED.txt
 GEN  # Genoa - found: AB_Italian_GEN.txt
 GEO  # Georgia - found: AB_Anatolia_GEO.txt
 GHT  # Ghent - found: AB_German_NED.txt
 GHU  # Ghor - found: AB_Persia_GHU.txt
-GLH  # Golden Horde - found: AB_Rus_GLH_Early.txt AB_Rus_GLH_European.txt AB_Rus_GLH_Horde.txt
+GLH = Early: AB_Rus_GLH_Early.txt | Tartaria: AB_Rus_GLH_European.txt | Horde: AB_Rus_GLH_Horde.txt  # Golden Horde - found: AB_Rus_GLH_Early.txt AB_Rus_GLH_European.txt AB_Rus_GLH_Horde.txt
 GNJ  # Gongjo - found: AB_Asia_TIB.txt
-GNV  # Geneva - found: AB_German_HLV.txt
+GNV = | GER: AB_German_ZZZ.txt  # Geneva - found: AB_German_HLV.txt
 GOR  # Goryeo - found: AB_Asia_GOR.txt
-GOS  # Goslar - found: AB_German_PRU.txt
+GOS = | GER: AB_German_ZZZ.txt  # Goslar - found: AB_German_PRU.txt
 GRG  # Gurgan - found: AB_Persia_GRG.txt
 GRH  # Grey Horde - found: AB_Steppe_GRH.txt
-GRS  # Grosseto - found: AB_Italian_LAN.txt
+GRS = | RMR: AB_Italian_RMR.txt # Grosseto - found: AB_Italian_LAN.txt
 GUG  # Guge - found: AB_Asia_TIB.txt
 GUY  # Gascony - found: AB_France_AQT.txt
-HAS  # Has - found: AB_German_HAS.txt
-HES  # Hesse - found: AB_German_RHL.txt
+HAS = | GER: AB_German_ZZZ.txt  # Has - found: AB_German_HAS.txt
+HES = | GER: AB_German_ZZZ.txt  # Hesse - found: AB_German_RHL.txt
 HNN  # Han - found: AB_Asia_CLE.txt
 HOL  # Holland - found: AB_German_NED.txt
 HSN  # Hisn Kayfa - found: AB_Arab_HSN.txt
-HTA  # Hata - found: AB_Asia_DaimyoVassal.txt
-HTK  # Hatakeyama - found: AB_Asia_DaimyoFree.txt
-HYA  # Hoya - found: AB_German_SAX.txt
+HTA = | JAP: AB_Asia_JAP.txt  # Hata - found: AB_Asia_DaimyoVassal.txt
+HTK = | JAP: AB_Asia_JAP.txt  # Hatakeyama - found: AB_Asia_DaimyoFree.txt
+HYA = | GER: AB_German_ZZZ.txt  # Hoya - found: AB_German_SAX.txt
 ILK  # Ilkhanate - found: AB_Persia_ILK.txt
-IMG  # Imagawa - found: AB_Asia_DaimyoFree.txt
+IMG = | JAP: AB_Asia_JAP.txt  # Imagawa - found: AB_Asia_DaimyoFree.txt
 INJ  # Injuids - found: AB_Persia_PER.txt
-ISK  # Isshiki - found: AB_Asia_DaimyoVassal.txt
+ISK = | JAP: AB_Asia_JAP.txt  # Isshiki - found: AB_Asia_DaimyoVassal.txt
 ISP  # Ispahbads - found: AB_Persia_PER.txt
 IVR  # Ivrea - found: AB_Italian_IVR.txt
 JLR  # Jalayirids - found: AB_Persia_JLR.txt
 JSN  # Joseon - found: AB_Asia_JSN.txt
-KHT  # Khoshuud - found: AB_Steppe_OIR.txt
+KHT = | MGL: AB_Steppe_MGL.txt # Khoshuud - found: AB_Steppe_OIR.txt
 KID  # Kildare - found: AB_Gaelic_IRE.txt
 KIE  # Kyiv - found: AB_Rus_UKR.txt
-KLE  # Cleves - found: AB_German_RHL.txt
-KMK  # Kamakura - found: AB_Asia_DaimyoFree.txt
-KNZ  # Konstanz - found: AB_German_SWA.txt
+KLE = | GER: AB_German_ZZZ.txt  # Cleves - found: AB_German_RHL.txt
+KMK = | JAP: AB_Asia_JAP.txt  # Kamakura - found: AB_Asia_DaimyoFree.txt
+KNZ = | GER: AB_German_ZZZ.txt  # Konstanz - found: AB_German_SWA.txt
 KOJ  # Jerusalem - found: AB_Arab_KOJ.txt
-KOL  # Cologne - found: AB_German_RHL.txt
+KOL = | GER: AB_German_ZZZ.txt  # Cologne - found: AB_German_RHL.txt
 KRN  # Karenids - found: AB_Persia_PER.txt
 KRR  # Kroraina - found: AB_Persia_TCR.txt
-KTB  # Kitabatake - found: AB_Asia_DaimyoVassal.txt
+KTB = | JAP: AB_Asia_JAP.txt  # Kitabatake - found: AB_Asia_DaimyoVassal.txt
 KUC  # Kuci - found: AB_Persia_TCR.txt
-KWH  # Kuwahara - found: AB_Asia_DaimyoVassal.txt
+KWH = | JAP: AB_Asia_JAP.txt  # Kuwahara - found: AB_Asia_DaimyoVassal.txt
 KYN  # Kayanizads - found: AB_Persia_PER.txt
-LAN  # Florence - found: AB_Italian_LAN.txt
+LAN = | RMR: AB_Italian_RMR.txt # Florence - found: AB_Italian_LAN.txt
 LEI  # Leinster - found: AB_Gaelic_IRE.txt
 LGG  # Lingtsang - found: AB_Asia_TIB.txt
 LIE  # Liege - found: AB_German_NED.txt
 LIT  # Lithuania - found: AB_Baltic_LIT.txt
 LOM  # Lombardy - found: AB_Italian_LOM.txt
 LOT  # Lotharingia - found: AB_France_LOT.txt
-LUC  # Lucca - found: AB_Italian_LAN.txt
+LUC = | RMR: AB_Italian_RMR.txt # Lucca - found: AB_Italian_LAN.txt
 LUD  # Lendians - found: AB_Slavic_POL_Orthodox.txt
-LUX  # Luxembourg - found: AB_German_RHL.txt
+LUX = | GER: AB_German_ZZZ.txt  # Luxembourg - found: AB_German_RHL.txt
 LVA  # Livonia - found: AB_Baltic_LVA.txt
 LWB  # Lower Burgundy - found: AB_France_ARS.txt
-MAI  # Mainz - found: AB_German_RHL.txt
+MAI = | GER: AB_German_ZZZ.txt  # Mainz - found: AB_German_RHL.txt
 MAZ  # Mazovians - found: AB_Slavic_000.txt AB_Slavic_POL_Pagan.txt
 MCM  # Munster - found: AB_Gaelic_IRE.txt
-MGM  # Mogami - found: AB_Asia_DaimyoFree.txt
+MGM = | JAP: AB_Asia_JAP.txt  # Mogami - found: AB_Asia_DaimyoFree.txt
 MGS  # Moghulistan - found: AB_Steppe_MGS.txt
-MGY  # Magyars - found: AB_Balkan_MGY.txt
+MGY = | HUN: AB_Balkan_HUN.txt # Magyars - found: AB_Balkan_MGY.txt
 MIN  # Min - found: AB_Asia_CLE.txt
-MKG  # Mark - found: AB_German_SAX.txt
+MKG = | GER: AB_German_ZZZ.txt  # Mark - found: AB_German_SAX.txt
 MNK  # Khiva - found: AB_Steppe_MNK.txt
 MNS  # Thomond - found: AB_Gaelic_IRE.txt
 MOL  # Moldavia - found: AB_Balkan_RMN.txt
 MOS  # Muscovy - found: AB_Rus_UKR.txt
 MRH  # Mihranids - found: AB_Persia_PER.txt
-MRI  # Mori - found: AB_Asia_DaimyoVassal.txt
-MRT  # Morokata - found: AB_Asia_DaimyoVassal.txt
+MRI = | JAP: AB_Asia_JAP.txt  # Mori - found: AB_Asia_DaimyoVassal.txt
+MRT = | JAP: AB_Asia_JAP.txt  # Morokata - found: AB_Asia_DaimyoVassal.txt
 MRV  # Merv - found: AB_Persia_PER.txt
 MSN  # Maysan - found: AB_Persia_MSN.txt
 MVA  # Moravia - found: AB_Slavic_MVA.txt
-MYR  # Yeren - found: AB_Asia_JIN.txt
-NAV  # Navarra - found: AB_Iberian_ASU.txt
+MYR = | QNG: AB_Asia_JIN.txt # Yeren - found: AB_Asia_JIN.txt
+NAV = | IBE: AB_Iberian_IBE.txt # Navarra - found: AB_Iberian_ASU.txt
 NAZ  # Nizzarids - found: AB_Arab_NAZ.txt
 NCE  # Nice - found: AB_Italian_IVR.txt
 NCI  # Nicaea - found: AB_Anatolia_NCI.txt
-NGO  # Nagao - found: AB_Asia_DaimyoFree.txt
-NHX  # Orochoni - found: AB_Asia_JIN.txt
-NKT  # Nakata - found: AB_Asia_DaimyoVassal.txt
-NLL  # Nara Ula - found: AB_Steppe_NLL.txt
+NGO = | JAP: AB_Asia_JAP.txt  # Nagao - found: AB_Asia_DaimyoFree.txt
+NHX = | QNG: AB_Asia_JIN.txt # Orochoni - found: AB_Asia_JIN.txt
+NKT = | JAP: AB_Asia_JAP.txt  # Nakata - found: AB_Asia_DaimyoVassal.txt
+NLL = | QNG: AB_Asia_JIN.txt # Nara Ula - found: AB_Steppe_NLL.txt
 NNV  # Nineveh - found: AB_Arab_ASR.txt
-NOR  # Norway - found: AB_North_NOR.txt
+NOR = | KOI: AB_Gaelic_KOI.txt # Norway - found: AB_North_NOR.txt
 NOV  # Novgorod - found: AB_Rus_NOV.txt
-NRD  # Nordmark - found: AB_German_PRU.txt
+NRD = | GER: AB_German_ZZZ.txt  # Nordmark - found: AB_German_PRU.txt
 NRM  # Normandy - found: AB_North_NRM.txt
-NSA  # Nassau - found: AB_German_RHL.txt
-NUM  # Nuremberg - found: AB_German_FKN.txt
+NSA = | GER: AB_German_ZZZ.txt  # Nassau - found: AB_German_RHL.txt
+NUM = | GER: AB_German_ZZZ.txt  # Nuremberg - found: AB_German_FKN.txt
 NVK  # Nivkh - found: AB_Steppe_EKK.txt
 NZH  # Nizhny Novgorod - found: AB_Rus_UKR.txt
-OBD  # Obotrites - found: AB_Slavic_000.txt AB_Slavic_OBD.txt
-ODA  # Oda - found: AB_Asia_DaimyoFree.txt
-ODL  # Wanggiyan - found: AB_Steppe_ODL.txt
-OGS  # Ogasawara - found: AB_Asia_DaimyoFree.txt
-OIT  # Oita - found: AB_Asia_DaimyoVassal.txt
+OBD = | WEE: AB_Slavic_000.txt AB_Slavic_WEE.txt # Obotrites - found: AB_Slavic_000.txt AB_Slavic_OBD.txt
+ODA = | JAP: AB_Asia_JAP.txt  # Oda - found: AB_Asia_DaimyoFree.txt
+ODL = | JIN: AB_Asia_JIN.txt # Wanggiyan - found: AB_Steppe_ODL.txt
+OGS = | JAP: AB_Asia_JAP.txt  # Ogasawara - found: AB_Asia_DaimyoFree.txt
+OIT = | JAP: AB_Asia_JAP.txt  # Oita - found: AB_Asia_DaimyoVassal.txt
 OKA  # Odoyev - found: AB_Rus_UKR.txt
-OLD  # Oldenburg - found: AB_German_HAS.txt
+OLD = | GER: AB_German_ZZZ.txt  # Oldenburg - found: AB_German_HAS.txt
 ORD  # Ormond - found: AB_Gaelic_IRE.txt
-OUC  # Ouchi - found: AB_Asia_DaimyoVassal.txt
+OUC = | JAP: AB_Asia_JAP.txt  # Ouchi - found: AB_Asia_DaimyoVassal.txt
 PAP  # The Papal State - found: AB_Italian_PAP.txt
 PAR  # Parma - found: AB_Italian_RMG.txt
 PDL  # Podolia - found: AB_Rus_UKR.txt
 PGA  # Perugia - found: AB_Italian_PAP.txt
 PHA  # U - found: AB_Asia_TIB.txt
-PIS  # Pisa - found: AB_Italian_LAN.txt
+PIS = | RMR: AB_Italian_RMR.txt # Pisa - found: AB_Italian_LAN.txt
 PLN  # Polans - found: AB_Slavic_POL_Catholic.txt
 PLT  # Polotsk - found: AB_Rus_UKR.txt
 PNN  # Pannonia - found: AB_Slavic_PNN.txt
-POM  # Pomerania - found: AB_Slavic_000.txt AB_Slavic_POM.txt
+POM = | WEE: AB_Slavic_000.txt AB_Slavic_WEE.txt # Pomerania - found: AB_Slavic_000.txt AB_Slavic_POM.txt
 PRR  # Pruthenia - found: AB_Baltic_PRR.txt
 PSK  # Pskov - found: AB_Rus_UKR.txt
-PSS  # Passau - found: AB_German_BAV.txt
+PSS = | GER: AB_German_ZZZ.txt  # Passau - found: AB_German_BAV.txt
 QQT  # Qara Khitai - found: AB_Steppe_QQT.txt
-REG  # Regensburg - found: AB_German_BAV.txt
-RFR  # Nanbu - found: AB_Asia_DaimyoFree.txt
+REG = | GER: AB_German_ZZZ.txt  # Regensburg - found: AB_German_BAV.txt
+RFR = | JAP: AB_Asia_JAP.txt  # Nanbu - found: AB_Asia_DaimyoFree.txt
 RIG  # Riga - found: AB_German_TEU.txt
 RMG  # Romagna - found: AB_Italian_RMG.txt
 ROB  # Rob - found: AB_Persia_ZUN.txt
-ROT  # Rothenburg - found: AB_German_FKN.txt
+ROT = | GER: AB_German_ZZZ.txt  # Rothenburg - found: AB_German_FKN.txt
 RSO  # Rostov - found: AB_Rus_UKR.txt
-RVA  # Dortmund - found: AB_German_RHL.txt
-RVB  # Ravensberg - found: AB_German_SAX.txt
+RVA = | GER: AB_German_ZZZ.txt  # Dortmund - found: AB_German_RHL.txt
+RVB = | GER: AB_German_ZZZ.txt  # Ravensberg - found: AB_German_SAX.txt
 RVN  # Ravenna - found: AB_Italian_RMG.txt
 RYA  # Ryazan - found: AB_Rus_UKR.txt
-SAX  # Saxony - found: AB_German_SAX.txt
-SBA  # Shiba - found: AB_Asia_DaimyoFree.txt
+SAX = | GER: AB_German_ZZZ.txt  # Saxony - found: AB_German_SAX.txt
+SBA = | JAP: AB_Asia_JAP.txt  # Shiba - found: AB_Asia_DaimyoFree.txt
 SCO  # Scotland - found: AB_North_SCO.txt
 SEL  # Seljuks - found: AB_Anatolia_SEL.txt
 SER  # Serbia - found: AB_Anatolia_SER.txt
@@ -202,71 +205,71 @@ SHH  # Shahi - found: AB_Persia_SHH.txt
 SHL  # Schleswig - found: AB_North_SHL.txt
 SHP  # Shapurids - found: AB_Persia_PER.txt
 SIC  # Sicily - found: AB_Italian_SIC.txt
-SIE  # Siena - found: AB_Italian_LAN.txt
+SIE = | RMR: AB_Italian_RMR.txt # Siena - found: AB_Italian_LAN.txt
 SIL  # Silesians - found: AB_Slavic_000.txt AB_Slavic_POL_Pagan.txt
 SKY  # Sakya - found: AB_Asia_TIB.txt
 SLH  # Shule - found: AB_Persia_TCR.txt
 SLV  # Carniola - found: AB_Balkan_SLV.txt
-SLZ  # Salzburg - found: AB_German_STY.txt
+SLZ = | GER: AB_German_ZZZ.txt  # Salzburg - found: AB_German_STY.txt
 SMG  # Samogitia - found: AB_Baltic_SMG.txt
 SMI  # Sápmi - found: AB_Baltic_SMI.txt
 SMO  # Smolensk - found: AB_Rus_UKR.txt
 SNG  # Song - found: AB_Asia_CLE.txt
 SOL  # Solon - found: AB_Steppe_EKK.txt
-SOO  # So - found: AB_Asia_DaimyoVassal.txt
-SOR  # Lusatia - found: AB_Slavic_SOR.txt
+SOO = | JAP: AB_Asia_JAP.txt  # So - found: AB_Asia_DaimyoVassal.txt
+SOR = | WEE: AB_Slavic_000.txt AB_Slavic_WEE.txt # Lusatia - found: AB_Slavic_SOR.txt
 SRK  # Sarukhanids - found: AB_Anatolia_RUM_Zoro.txt
 SRN  # Surenas - found: AB_Persia_PER.txt
 SSN  # Sassanids - found: AB_Persia_PER.txt
-STK  # Satake - found: AB_Asia_DaimyoFree.txt
-STY  # Styria - found: AB_German_STY.txt
-SWA  # Swabia - found: AB_German_SWA.txt
+STK = | JAP: AB_Asia_JAP.txt  # Satake - found: AB_Asia_DaimyoFree.txt
+STY = | GER: AB_German_ZZZ.txt  # Styria - found: AB_German_STY.txt
+SWA = | GER: AB_German_ZZZ.txt  # Swabia - found: AB_German_SWA.txt
 SWE  # Sweden - found: AB_North_SWE.txt
-SWI  # Switzerland - found: AB_German_HLV.txt
+SWI = | GER: AB_German_ZZZ.txt  # Switzerland - found: AB_German_HLV.txt
 TGU  # Li - found: AB_Asia_TGU.txt
-THU  # Thuringia - found: AB_German_PRU.txt
-TIR  # Tirol - found: AB_German_STY.txt
+THU = | GER: AB_German_ZZZ.txt  # Thuringia - found: AB_German_PRU.txt
+TIR = | GER: AB_German_ZZZ.txt  # Tirol - found: AB_German_STY.txt
 TJJ  # Toyouji - found: AB_Asia_TJJ.txt
-TKD  # Takeda - found: AB_Asia_DaimyoFree.txt
-TKG  # Tokugawa - found: AB_Asia_DaimyoFree.txt
-TKI  # Toki - found: AB_Asia_DaimyoFree.txt
+TKD = | JAP: AB_Asia_JAP.txt  # Takeda - found: AB_Asia_DaimyoFree.txt
+TKG = | JAP: AB_Asia_JAP.txt  # Tokugawa - found: AB_Asia_DaimyoFree.txt
+TKI = | JAP: AB_Asia_JAP.txt  # Toki - found: AB_Asia_DaimyoFree.txt
 TKK  # Artuqids - found: AB_Anatolia_RUM_Christian.txt
-TKL  # Tecklenburg - found: AB_German_SAX.txt
+TKL = | GER: AB_German_ZZZ.txt  # Tecklenburg - found: AB_German_SAX.txt
 TMG  # Temugids - found: AB_Asia_TMG.txt
-TNT  # Trent - found: AB_German_STY.txt
-TRG  # Torghut - found: AB_Steppe_OIR.txt
-TRI  # Trier - found: AB_German_RHL.txt
+TNT = | GER: AB_German_ZZZ.txt  # Trent - found: AB_German_STY.txt
+TRG = | MGL: AB_Steppe_MGL.txt # Torghut - found: AB_Steppe_OIR.txt
+TRI = | GER: AB_German_ZZZ.txt  # Trier - found: AB_German_RHL.txt
 TRK  # Turkestan - found: AB_Steppe_TRK.txt
 TVE  # Tver - found: AB_Rus_UKR.txt
 TYR  # Tyrone - found: AB_Gaelic_IRE.txt
-UDO  # Uto - found: AB_Asia_DaimyoVassal.txt
-UES  # Uesugi - found: AB_Asia_DaimyoFree.txt
-UKM  # Urakami - found: AB_Asia_DaimyoVassal.txt
-ULM  # Ulm - found: AB_German_SWA.txt
+UDO = | JAP: AB_Asia_JAP.txt  # Uto - found: AB_Asia_DaimyoVassal.txt
+UES = | JAP: AB_Asia_JAP.txt  # Uesugi - found: AB_Asia_DaimyoFree.txt
+UKM = | JAP: AB_Asia_JAP.txt  # Urakami - found: AB_Asia_DaimyoVassal.txt
+ULM = | GER: AB_German_ZZZ.txt  # Ulm - found: AB_German_SWA.txt
 ULS  # Ulster - found: AB_Gaelic_IRE.txt
 UPB  # Upper Burgundy - found: AB_France_ARS.txt
 URB  # Urbino - found: AB_Italian_PAP.txt
-UTN  # Utsunomiya - found: AB_Asia_DaimyoFree.txt
+UTN = | JAP: AB_Asia_JAP.txt  # Utsunomiya - found: AB_Asia_DaimyoFree.txt
 UTR  # Utrecht - found: AB_German_NED.txt
 UTS  # Tsang - found: AB_Asia_TIB.txt
-UWA  # Uwa - found: AB_Asia_DaimyoVassal.txt
+UWA = | JAP: AB_Asia_JAP.txt  # Uwa - found: AB_Asia_DaimyoVassal.txt
 VEN  # Venice - found: AB_Italian_VEN.txt
-VER  # Verden - found: AB_German_HAS.txt
+VER = | GER: AB_German_ZZZ.txt  # Verden - found: AB_German_HAS.txt
 VIS  # Vistulans - found: AB_Slavic_000.txt AB_Slavic_POL_Pagan.txt
 VLD  # Vladimir - found: AB_Rus_UKR.txt
 VLG  # Vologda - found: AB_Rus_UKR.txt
-VLT  # Veleti - found: AB_Slavic_000.txt AB_Slavic_VLT.txt
+VLT = | WEE: AB_Slavic_000.txt AB_Slavic_WEE.txt # Veleti - found: AB_Slavic_000.txt AB_Slavic_VLT.txt
 VOL  # Halych-Volyn - found: AB_Rus_UKR.txt
 VRN  # Verona - found: AB_Italian_RMG.txt
 WAL  # Wallachia - found: AB_Balkan_RMN.txt
-WBG  # Wurzburg - found: AB_German_FKN.txt
+WBG = | GER: AB_German_ZZZ.txt  # Wurzburg - found: AB_German_FKN.txt
 WLS  # Wales - found: AB_Gaelic_WLS.txt
 WRT  # Turov - found: AB_Rus_UKR.txt
 WTF  # Waterford - found: AB_Gaelic_FNG.txt
 YAR  # Yaroslavl - found: AB_Rus_UKR.txt
-YMN  # Yamana - found: AB_Asia_DaimyoVassal.txt
+YMN = | JAP: AB_Asia_JAP.txt  # Yamana - found: AB_Asia_DaimyoVassal.txt
 YOT  # Yotvingia - found: AB_Baltic_SMG.txt
-YUA  # Yuan - found: AB_Asia_YUA_Chinese.txt AB_Asia_YUA_Horde.txt
+YUA = Chinese: AB_Asia_YUA_Chinese.txt | Horde: AB_Asia_YUA_Horde.txt | Nestorian: AB_Asia_YUA_Nestorian.txt  # Yuan - found: AB_Asia_YUA_Chinese.txt AB_Asia_YUA_Horde.txt
 YUE  # Yue - found: AB_Asia_CLE.txt
 ZAZ  # Zaporizhzhia - found: AB_Rus_HTM.txt
 ZHH  # Zhou - found: AB_Asia_CLE.txt
