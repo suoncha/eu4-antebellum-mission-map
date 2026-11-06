@@ -183,6 +183,9 @@ def walk(d):
             yield e.path
 
 
+WALKED = {}  # directory -> its file paths, so a folder is listed once per run
+
+
 class Layers:
     def __init__(self, roots):
         self.roots = roots
@@ -192,11 +195,12 @@ class Layers:
         out = {}
         for r in self.roots:
             d = os.path.join(r, rel_dir)
-            if not os.path.isdir(d):
-                continue
-            for p in walk(d):
+            if d not in WALKED:
+                WALKED[d] = list(walk(d)) if os.path.isdir(d) else []
+            n = len(d) + 1  # walk() paths are d + separator + relative path
+            for p in WALKED[d]:
                 if p.lower().endswith(ext):
-                    out[os.path.relpath(p, d)] = p
+                    out[p[n:]] = p
         return dict(sorted(out.items()))
 
     def file(self, rel):
@@ -580,6 +584,16 @@ def switch_vars(items):
     return out
 
 
+SERIES_VARS = {}  # id(series) -> (series, its switch_vars), computed once per run
+
+
+def series_switch_vars(s):
+    hit = SERIES_VARS.get(id(s))
+    if hit is None or hit[0] is not s:
+        hit = SERIES_VARS[id(s)] = (s, switch_vars(s['potential']))
+    return hit[1]
+
+
 def pretty_switch(names, loc):
     """Button labels for switch variables: their localisation if any, else the names without the prefix and
     suffix they all share (fra_monarchy_focus, fra_communist_focus -> Monarchy, Communist)."""
@@ -600,7 +614,9 @@ def branch_packs(series, ctx, loc, max_vars=10):
     the distinct sets of visible series (none sharing a slot position) are the options, named after the
     smallest assignment giving each. Returns (packs, hidden): packs = [[(label, [series positions]), ...]]
     with the default (fewest flags set, labelled Default) first; hidden = series positions no option shows."""
-    vars_of = [switch_vars(s['potential']) for s in series]
+    vars_of = [series_switch_vars(s) for s in series]
+    if not any(vars_of):  # most trees: no flag-switched paths
+        return [], set()
     parent = {}
 
     def find(x):
@@ -857,13 +873,23 @@ def find_files(roots, rel_dir, exts):
     return out
 
 
+LISTED = {}  # folder (lower case) -> {file name (lower case): name}, one listing per folder
+
+
 def texture(roots, rel):
     """Find a texture referenced from a .gfx file, case-insensitively on the extension."""
     for r in reversed(roots):
-        p = os.path.join(r, rel)
-        for cand in (p, os.path.splitext(p)[0] + '.dds', os.path.splitext(p)[0] + '.tga'):
-            if os.path.isfile(cand):
-                return cand
+        d, name = os.path.split(os.path.join(r, rel))  # same path strings as before (they are cache keys)
+        key = os.path.normpath(d).lower()
+        if key not in LISTED:
+            try:
+                LISTED[key] = {e.name.lower(): e.name for e in os.scandir(d) if e.is_file()}
+            except OSError:
+                LISTED[key] = {}
+        names = LISTED[key]
+        for cand in (name, os.path.splitext(name)[0] + '.dds', os.path.splitext(name)[0] + '.tga'):
+            if cand.lower() in names:
+                return os.path.join(d, cand)
 
 
 # ---------------------------------------------------------------- main
@@ -982,6 +1008,33 @@ def game_texts(g):
             'mission_raw': {i: td for i, td in raw.items() if '[' in (td[0] or '') + (td[1] or '')}}
 
 
+def slim_texts(g):
+    """Keep only the localisation and defined_texts that the page build reads after loading the cache:
+    every build unpickles game.pkl, and the full English localisation was most of it (lore, names and
+    the plain mission texts are already resolved by game_texts)."""
+    loc, dts = g['loc'], g['defined_texts']
+    keys = {k for k in loc if TAG_RE.fullmatch(k) or (k.endswith('_ADJ') and TAG_RE.fullmatch(k[:-4]))}
+    keys |= set(g['cgroups']) | set(g['cgroups'].values()) | set(g['corder'])
+    keys |= {x for r, info in g['religions'].items() for x in (r, info['group'], r + '_religion_desc')}
+    keys |= {v for sr in g['series_aba'] + g['series_ab'] for _, v in switch_vars(sr['potential'])}
+    # what resolve_loc can reach from the per-country mission texts, through defined_texts
+    used_dt, todo, seen = set(), [t for td in g['mission_raw'].values() for t in td if t], set()
+    while todo:
+        text = todo.pop()
+        for expr in re.findall(r'\[([^\]]+)\]', text):
+            for part in expr.strip().split('.'):
+                if part in dts and part not in used_dt:
+                    used_dt.add(part)
+                    for k, _ in dts[part]:
+                        if k and k not in seen:
+                            seen.add(k)
+                            keys.add(k)
+                            if loc.get(k):
+                                todo.append(loc[k])
+    g['loc'] = {k: loc[k] for k in keys if k in loc}
+    g['defined_texts'] = {n: dts[n] for n in used_dt}
+
+
 def load_game(L, Lab):
     """Everything read from the game files, cached as one object keyed by every input file (and this
     script), so a build with unchanged game files skips parsing and processing them."""
@@ -1005,6 +1058,7 @@ def load_game(L, Lab):
             'series_aba': load_series(L), 'series_ab': load_series(Lab), 'sprites': load_sprites(L),
         }
         game.update(game_texts(game))
+        slim_texts(game)
         PARSED.save()
         return game
     cache = Cache('game.pkl')
@@ -1051,6 +1105,7 @@ def main():
 
     # mission series: keep only those some tag gets, deduplicated across the two layers
     out_series, sid, texts, raw = [], {}, game['mission_texts'], game['mission_raw']
+    skeys = {}  # id(series) -> its dedup key; the series objects live for the whole run
 
     def text(i, lc):
         """(title, desc) of a mission for a country; lc = (ctx, name, adjective)."""
@@ -1062,7 +1117,9 @@ def main():
     def keep(s, lc, mt):
         """Index of the series in the page data. Its texts are filled for the first country that uses it;
         other countries whose filled texts differ get theirs in mt ({mission id: [title, desc]})."""
-        key = (s['file'], s['name'], json.dumps(s['missions']))
+        key = skeys.get(id(s))
+        if key is None:  # computed once per series (the json.dumps is the costly part)
+            key = skeys[id(s)] = (s['file'], s['name'], json.dumps(s['missions']))
         if key not in sid:
             sid[key] = len(out_series)
             out_series.append({

@@ -21,7 +21,10 @@ preview of its mission tree.
   `pip install pillow numpy`.
 - `template.html` holds the page's HTML, CSS and JS. The script replaces `/*__DATA__*/` with the text
   data (JSON → gzip -9 → base64), `/*__BINARY__*/null` with `{img, flags, relIcons, msnIcons, music}`
-  (base64 / data URIs), and `__TITLE__` / `__SUBTITLE__`. The main script is `<script type="module">`
+  (base64 / data URIs), and `__TITLE__` / `__SUBTITLE__`. Both data placeholders sit in
+  `<script type="text/plain" id="aba-data">` / `id="aba-bin"` blocks *outside* the module (so the JS
+  engine never parses or keeps megabytes of string literals; −10 % startup, −2 MB heap); the module reads
+  their `textContent` (`takeText`) and removes them. The main script is `<script type="module">`
   so it can top-level `await`: `unpack()` decodes base64 with `fetch('data:…')`, `DecompressionStream`
   unzips the JSON. Module scope means page functions aren't globals (test probes go inside the module).
 - `country_setup/` holds the tag lists (`#` starts a comment):
@@ -29,7 +32,13 @@ preview of its mission tree.
   - `additional.txt`: tags with new content but no new tree, drawn striped.
   - `favorites.txt`: the shields shown at the bottom middle of the map.
   - `ab.txt`: tags with an Ante Bellum tree, one per line, optionally `TAG = file.txt file2.txt`
-    (`read_tag_map`). The first three are space/comma/newline separated (`read_tags`).
+    (`read_tag_map`). Switchable trees are separated by `|`, each `Label: files`; the first is the
+    original (label optional, empty files = auto-detect). A label that is a tag shows as "Form <country>"
+    with its flag, e.g. `ODA = | JAP: AB_Asia_JAP.txt`, `YUA = Chinese: … | Horde: … | Nestorian: …`.
+    All daimyo tags have Form Japan; all `AB_German_(BAV|FKN|HAS|HLV|PRU|RHL|SAX|STY|SWA)` tags have
+    `GER: AB_German_ZZZ.txt`. The first three files are space/comma/newline separated (`read_tags`).
+- `mission_check/`: the user's working copies of AB trees that need fixing (formables, branching). Not
+  read by the build: trees come from `D:/ab/missions`.
 - `culture_setup/culture.txt`: base colour per culture group (`group = R G B`). The build writes it
   when missing and never overwrites it.
 - The output is a single standalone `index.html` (full `<!doctype>` + `<meta charset="utf-8">`, so it
@@ -65,7 +74,11 @@ preview of its mission tree.
     country names, each country's chosen lore, mission titles/descriptions and province names. Keyed by
     every input file and this script itself. With unchanged game files nothing is parsed (`parse.pkl` is
     only opened on a miss). File dates come from the directory listing (`walk()` fills `STATS`, free on
-    Windows), so checking ~10,500 files needs no separate `os.stat` calls.
+    Windows), so checking ~10,500 files needs no separate `os.stat` calls; each folder is listed once per
+    run (`WALKED`) and `texture()` looks files up in one cached folder listing (`LISTED`).
+    `slim_texts()` keeps only the localisation and defined_texts the page build reads afterwards (tag
+    names/`_ADJ`, cultures, religions, flag/modifier names, and what `mission_raw` placeholders reach
+    through defined_texts): 30 MB → 7 MB, ~0.15 s off every warm build.
   - `parse.pkl`: parsed script files (`parse_file()`), used when `game.pkl` misses.
   - `images.pkl`: resized images as PNG bytes (`open_image`), the province image + per-province bboxes
     (`province_image`), the encoded atlases (`atlas()`, keyed by its entries' cache keys, so an unchanged
@@ -92,7 +105,21 @@ preview of its mission tree.
   - The Actum trees use all series from `ROOTS` + `MOD_ROOT`.
   - The AB trees: only series in `AB_MISSION_FILES` from `ROOTS` (`D:/ab` also holds vanilla files),
     and only for tags in `ab.txt`: mapped files → all their series, else the matching series. The
-    Ante Bellum mode highlights the `ab.txt` tags on the map (`abTree`).
+    Ante Bellum mode highlights the `ab.txt` tags on the map (`abTree`). Variants from `|` go to
+    `tags[t].abForms = [{label, tag?, ab, mt?, br?}]` (variant 0 = the original tree).
+  - **Branching paths** (`branch_packs`): series whose potentials check the same country flags or
+    modifiers (`has_country_flag` / `has_country_modifier`, linked by co-occurrence) form a pack. Every
+    True/False assignment is evaluated (`Ctx.switch`); the distinct sets of visible series that don't
+    share a slot position are the options; subsets and series in every option drop out. The option with
+    the fewest flags set is first, labelled "Default"; others are named from the flag's localisation or
+    the flag name minus the pack's shared prefix/suffix. Stored as `br: [[[label, [series]], …], …]` per
+    tree. Formed trees evaluate as the formed tag (`Ctx.was` = {formed, original} for `was_tag`).
+  - **Dynamic localisation** (`resolve_loc`, also used for lore): `[..]` placeholders are filled per
+    country: defined_texts (first True text, else first non-False non-empty), name/adjective/government/
+    religion/capital, `<province id>.GetName`, monarch name/title/pronouns, `<TAG>.…` scopes. Unknown ones
+    become empty (`[6.Capital.GetName]`, `[8.GetAdjective]` in AB's Swedish loc are AB bugs). Texts are
+    resolved for the first country using a series; other countries get overrides in `tags[t].mt`
+    (`{mission index: [title, desc]}`).
 - **Images:** flags (`gfx/flags/*.tga`), religion icons (64 px frames of `icon_religion.dds`, frame
   number `icon - 1`) and mission icons (sprite name = mission `icon`, resolved through
   `interface/*.gfx`) are packed into WebP atlases.
@@ -100,9 +127,8 @@ preview of its mission tree.
   `customizable_localization/00_country_lore.txt`: the first `text` whose trigger is True wins (ends in
   an `always = yes` fallback). Triggers go through `ev`, extended with `always`, `is_random_new_world`
   and `capital_scope` (area/region/superregion/continent from `map/*.txt`, see `load_geography`).
-  `fill_placeholders` fills `[GetYear]`, `[Root.GetName]`, `[Root.GetAdjective]`,
-  `[Root.Monarch.Dynasty.GetName]` and `[Root.GovernmentName]` (the last is approximated from government
-  type and rank).
+  Placeholders are filled by `resolve_loc` (see Dynamic localisation; `[Root.GovernmentName]` is
+  approximated from government type and rank).
   Lore is deduplicated: `D.lore` is the list of distinct texts (176 for 708 tags) and `tags[t].lore` an
   index into it.
 - **Religion descriptions** come from `{religion}_religion_desc`. `groupCultures` lists every culture of
@@ -132,8 +158,15 @@ preview of its mission tree.
   (Ante Bellum / Actum), religion icon + group + description (Religion), or the culture group with all
   its cultures as chips, the country's own highlighted (Culture).
   - The preview is laid out like EU4: one column per slot, always at least 5 (unused slots stay empty),
-    one row per position, no "Slot N" labels. Series in the same slot whose positions overlap become
-    A/B/C branch tabs (a tab row appears only when some slot has them).
+    one row per position, no "Slot N" labels.
+  - Form buttons (from `abForms`) sit above the tree; the choice is kept per tag in memory (`formState`).
+  - Branching paths are switched from a **rail** (`#rail`) pinned to the sidebar's left edge over the map
+    (below the zoom buttons), so it stays put while the tree scrolls (modelled on AB's in-game mission
+    preview tabs). Groups are headed "Branching 1", "Branching 2", …; the no-flag option is "Default".
+    Flag packs come first; then slots whose series still overlap without a flag (Germany's state fifth
+    groups), labelled by the words their series names don't share (`seriesLabels`). A series that overlaps
+    nothing in its slot is always shown. At phone width the rail is a horizontal strip above the panel.
+    Choices are kept in memory (`branchState`, `treeState`).
   - `drawArrows` draws SVG arrows behind the cards from each required mission to the missions needing
     it, routed by `arrowRoutes` the way EU4 does (the user compared against EU4's Andalusia tree and
     rejected a staggered-lane version as unbalanced): every arrow turns once, in the middle of the
@@ -147,6 +180,8 @@ preview of its mission tree.
     highlighted; the user prefers EU4's arrows).
   - Testing tip: headless Edge with SwiftShader (`--use-angle=swiftshader`) crashed the user's laptop
     twice; test panel/tree changes with `--disable-gpu` (no globe, light) and one browser at a time.
+    Launch Edge from PowerShell (`Start-Process … -RedirectStandardOutput … -Wait`): from the Bash tool it
+    printed nothing.
   - Ante Bellum mode shows the AB tree; Actum mode shows the Actum tree.
 - **Map rendering: WebGL 2 globe** (the user chose a 3D globe over a flat horizontal wrap).
   - Pass 1, `paint()`, runs on mode change, select, theme change and tag edits. `provinceColors()` fills
@@ -180,13 +215,18 @@ preview of its mission tree.
   SMO matches its AB series; the earlier miss came from the incomplete cloud files. The 756 ids without
   history are placeholder `definition.csv` slots (id 0, `UnusedLand*`, `RNW`) that never appear on the
   map, so the "no history" warning only counts provinces that are drawn.
-- A warm-cache build takes about 1.0 s (2026-11-04; ~110 s originally, 4 s before the game cache, 1.7 s
-  before caching the per-country texts). A build after a game file or build_map.py change takes ~11–16 s. The
-  output is about 4.6 MB with `SCALE = 1` (was 11.2 MB): music ~2 MB (Opus 64k base64; the user chose
-  embedding over a separate file), gzipped text data ~1 MB, atlases ~1 MB, province image 0.4 MB.
-- Page timings in headless Edge with SwiftShader (CPU-emulated GPU, so real GPUs are faster, and the
-  numbers are noisy): startup script ~0.8 s (was ~1.8 s); map ready ~2.7 s, dominated by emulated GPU
-  setup; select ~15–50 ms, back to list ~50 ms, mode switch ~5–15 ms. Use real time (`--timeout`), not
+- A warm-cache build takes about 0.6 s in `main()`, 0.8 s with Python start (2026-11-07; ~110 s
+  originally, 4 s before the game cache, 1.7 s before caching the per-country texts, 0.94 s before the
+  2026-11-07 pass). A build after a game file or build_map.py change takes ~2.2 s while `parse.pkl` is
+  valid (~11–16 s with no cache). The output is about 4.7 MB with `SCALE = 1` (was 11.2 MB): music ~2 MB
+  (Opus 64k base64; the user chose embedding over a separate file), gzipped text data ~1 MB (mission
+  descriptions are 524 KB of the 600 KB of series text), atlases ~1.2 MB, province image 0.4 MB.
+- Page timings in headless Edge with `--disable-gpu` (no globe paint; 2026-11-07): startup ~200 ms
+  (~110 ms of it is the browser parsing the 4.7 MB HTML), select ~5 ms, back to list ~7 ms, mode switch
+  ~2.5 ms, JS heap 21.4 MB. Benchmark copies go in the scratchpad; compare against an older page with
+  `git show <commit>:index.html`.
+- Older timings with SwiftShader (CPU-emulated GPU, noisy): startup script ~0.8 s; map ready ~2.7 s,
+  dominated by emulated GPU setup; select ~15–50 ms, back to list ~50 ms, mode switch ~5–15 ms. Use real time (`--timeout`), not
   `--virtual-time-budget`, when timing: the virtual clock gave 0 ms readings inside module code.
   `--dump-dom` / `--screenshot` capture at the page's load event, and the module's async work (data
   unpack, ~1 MB `fetch('data:…')`) can finish just after it, so a probe never runs. In test copies, delay

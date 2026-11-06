@@ -198,13 +198,18 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
   </div>
 </div>
 <div class="tip" id="tip" hidden></div>
+<!-- The page's data, outside the module so the JS engine never parses (or keeps) megabytes of string literals:
+     text (names, missions, lore, ...) as gzipped JSON in base64, images and music as base64 / data URIs. -->
+<script type="text/plain" id="aba-bin">/*__BINARY__*/null</script>
+<script type="text/plain" id="aba-data">/*__DATA__*/</script>
 
 <script type="module">
-// The page's data: text (names, missions, lore, ...) as gzipped JSON, images and music as base64.
+// The page's data comes from the two text/plain scripts above (read once, then removed from the page).
 // fetch() decodes data: URLs natively, and DecompressionStream unzips, so neither blocks the page for long.
-const BINARY = /*__BINARY__*/null;
+const takeText = id => { const el = document.getElementById(id), t = el.textContent; el.remove(); return t; };
+const BINARY = JSON.parse(takeText('aba-bin'));
 const unpack = async (b64, type) => (await fetch(`data:${type};base64,${b64}`)).blob();
-const D = JSON.parse(await new Response((await unpack('/*__DATA__*/', 'application/octet-stream')).stream()
+const D = JSON.parse(await new Response((await unpack(takeText('aba-data'), 'application/octet-stream')).stream()
   .pipeThrough(new DecompressionStream('gzip'))).text());
 // missions come compact from the build: [index, icon, position, [required indexes], title, description]
 for (const s of D.series) s.missions = s.missions.map(([id, icon, pos, req, title, desc]) =>
