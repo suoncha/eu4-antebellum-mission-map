@@ -263,6 +263,7 @@ def load_country_history(L):
                 st['reforms'].add(v)
             elif k == 'monarch' and isinstance(v, list):
                 st['dynasty'] = get(v, 'dynasty', st.get('dynasty'))
+                st['monarch_name'], st['monarch_female'] = get(v, 'name'), get(v, 'female') == 'yes'
             elif isinstance(v, str):
                 st[k] = v
         out[m.group(1)] = st
@@ -375,30 +376,89 @@ def load_geography(L):
     return geo
 
 
-def load_defined_text(L, name):
-    """[(localisation key, trigger items), ...] of the named defined_text in customizable_localization/."""
+def load_defined_texts(L):
+    """{name: [(localisation key, trigger items), ...]} of every defined_text in customizable_localization/
+    (the first definition of a name wins)."""
+    out = {}
     for _, p in L.files('customizable_localization').items():
         for k, body in parse_file(p):
-            if k == 'defined_text' and isinstance(body, list) and get(body, 'name') == name:
-                return [(get(t, 'localisation_key'), get(t, 'trigger') or [])
-                        for k2, t in body if k2 == 'text' and isinstance(t, list)]
-    return []
+            if k == 'defined_text' and isinstance(body, list):
+                name = get(body, 'name')
+                if name and name not in out:
+                    out[name] = [(get(t, 'localisation_key'), get(t, 'trigger') or [])
+                                 for k2, t in body if k2 == 'text' and isinstance(t, list)]
+    return out
 
 
 # [Root.GovernmentName] really comes from scripted government names; this approximates it by type and rank.
 GOV_NAMES = {'monarchy': {'1': 'Duchy', '2': 'Kingdom', '3': 'Empire'}, 'republic': 'Republic',
              'theocracy': 'Theocracy', 'tribal': 'Tribe', 'native': 'Tribe'}
+MONARCH_TITLES = {'1': 'Duke', '2': 'King', '3': 'Emperor'}
+PRONOUNS = {'getshehe': ('she', 'he'), 'getherhim': ('her', 'him'), 'getherhis': ('her', 'his'),
+            'gethershis': ('hers', 'his'), 'getherselfhimself': ('herself', 'himself'),
+            'getwomanman': ('woman', 'man'), 'getqueenking': ('queen', 'king')}
 
 
-def fill_placeholders(s, tag, st, name, loc):
-    """Replace the [..] placeholders that start-screen lore uses with the country's 1444 values."""
-    gov = GOV_NAMES.get(st.get('government'), 'Realm')
-    if isinstance(gov, dict):
-        gov = gov.get(st.get('government_rank'), 'Kingdom')
-    subs = {'GetYear': str(START_DATE[0]), 'Root.GetName': name, 'Root.GovernmentName': gov,
-            'Root.GetAdjective': clean_loc(loc.get(tag + '_ADJ')) or name,
-            'Root.Monarch.Dynasty.GetName': st.get('dynasty') or name}
-    return re.sub(r'\[([^\]]+)\]', lambda m: subs.get(m.group(1), m.group(0)), s or '')
+def resolve_loc(s, ctx, name, adj, g, depth=0):
+    """Fill the [..] placeholders of a localisation text with the country's 1444 values: defined_texts
+    (first text whose trigger is True, else the first one not False that isn't empty), country, capital,
+    province and monarch values. ctx gives the country's state; name and adj its displayed name and adjective
+    (a formed country's for formable trees). Unknown placeholders become empty, and clean_loc later strips colour codes."""
+    st, loc = ctx.st, g['loc']
+    female = st.get('monarch_female')
+    prov = lambda pid: g['prov_names'].get('PROV' + str(pid), '')
+
+    def value(expr):
+        parts = expr.strip().split('.')
+        if len(parts) > 1 and parts[0].lower() in ('root', 'this'):
+            parts = parts[1:]
+        if len(parts) > 1 and TAG_RE.fullmatch(parts[0]) and parts[0] in g['hist'] and depth < 4:  # [YUA.GetName]
+            t = parts[0]
+            n = g['names'].get(t) or clean_loc(loc.get(t)) or t
+            c = Ctx(t, g['hist'][t], ctx.cg, ctx.rel, ctx.geo)
+            return resolve_loc('[' + '.'.join(parts[1:]) + ']', c, n, clean_loc(loc.get(t + '_ADJ')) or n, g, depth + 1)
+        if len(parts) == 1 and parts[0] in g['defined_texts']:
+            return defined(parts[0])
+        low = '.'.join(parts).lower()
+        if low.endswith('cap'):
+            v = value('.'.join(parts)[:-3])
+            return v[:1].upper() + v[1:]
+        gov = GOV_NAMES.get(st.get('government'), 'Realm')
+        simple = {
+            'getyear': lambda: str(START_DATE[0]), 'getname': lambda: name, 'getusablename': lambda: name,
+            'getadjective': lambda: adj or name, 'gettag': lambda: ctx.tag,
+            'getcapitalname': lambda: prov(st.get('capital')),
+            'governmentname': lambda: gov.get(st.get('government_rank'), 'Kingdom') if isinstance(gov, dict) else gov,
+            'monarch.dynasty.getname': lambda: st.get('dynasty') or name,
+            'monarch.getname': lambda: st.get('monarch_name') or '',
+            'monarch.gettitle': lambda: (MONARCH_TITLES.get(st.get('government_rank'), 'King')
+                                         if st.get('government') == 'monarchy' else 'Ruler'),
+            'religion.getname': lambda: clean_loc(loc.get(st.get('religion') or '')),
+            'capital.getname': lambda: prov(st.get('capital')),
+            'capital.getcapitalname': lambda: prov(st.get('capital')),
+        }
+        if low in simple:
+            return simple[low]()
+        if low.startswith('monarch.') and low[8:] in PRONOUNS:
+            return PRONOUNS[low[8:]][0 if female else 1]
+        m = re.fullmatch(r'(\d+)\.getname', low)
+        return prov(m.group(1)) if m else ''
+
+    def defined(dt):
+        if depth >= 4:
+            return ''
+        texts = [(k, ev_block(trig, ctx)) for k, trig in g['defined_texts'][dt]]
+        true = next((k for k, v in texts if v is True), None)
+        if true is not None:
+            return resolve_loc(loc.get(true), ctx, name, adj, g, depth + 1)
+        for k, v in texts:
+            if v is not False:
+                out = resolve_loc(loc.get(k), ctx, name, adj, g, depth + 1)
+                if clean_loc(out):
+                    return out
+        return ''
+
+    return re.sub(r'\[([^\]]+)\]', lambda m: value(m.group(1)), s or '')
 
 
 # ---------------------------------------------------------------- missions
@@ -804,17 +864,23 @@ def game_texts(g):
     """Display texts that depend only on the game files, so they are cached with them: country names and
     lore (the lore choice evaluates every lore trigger for every country), mission titles and
     descriptions, province names."""
-    loc, names, lore = g['loc'], {}, {}
-    for t in sorted({st['owner'] for st in g['prov'].values() if st['owner']}):
+    loc, lore = g['loc'], {}
+    owners = sorted({st['owner'] for st in g['prov'].values() if st['owner']})
+    names = {t: clean_loc(loc.get(t)) or t for t in owners}
+    prov_names = {k: clean_loc(v) for k, v in loc.items() if k.startswith('PROV') and k[4:].isdigit()}
+    g = {**g, 'names': names, 'prov_names': prov_names}  # what resolve_loc reads
+    lore_texts = g['defined_texts'].get(LORE_DEFINED_TEXT, [])
+    for t in owners:
         st = g['hist'].get(t, {})
         ctx = Ctx(t, st, g['cgroups'], g['religions'], g['geo'])
-        names[t] = clean_loc(loc.get(t)) or t
-        key = next((k for k, trig in g['lore_texts'] if ev_block(trig, ctx) is True), None)
-        lore[t] = clean_loc(fill_placeholders(loc.get(key), t, st, names[t], loc))
+        key = next((k for k, trig in lore_texts if ev_block(trig, ctx) is True), None)
+        lore[t] = clean_loc(resolve_loc(loc.get(key), ctx, names[t], clean_loc(loc.get(t + '_ADJ')) or names[t], g))
     missions = {m['id'] for s in g['series_aba'] + g['series_ab'] for m in s['missions']}
-    return {'names': names, 'lore': lore,
-            'mission_texts': {i: (clean_loc(loc.get(i + '_title')) or i, clean_loc(loc.get(i + '_desc'))) for i in missions},
-            'prov_names': {k: clean_loc(v) for k, v in loc.items() if k.startswith('PROV') and k[4:].isdigit()}}
+    raw = {i: (loc.get(i + '_title'), loc.get(i + '_desc')) for i in missions}
+    return {'names': names, 'lore': lore, 'prov_names': prov_names,
+            'mission_texts': {i: (clean_loc(t) or i, clean_loc(d)) for i, (t, d) in raw.items()},
+            # texts with [..] placeholders are filled per country when the page data is built
+            'mission_raw': {i: td for i, td in raw.items() if '[' in (td[0] or '') + (td[1] or '')}}
 
 
 def load_game(L, Lab):
@@ -834,7 +900,7 @@ def load_game(L, Lab):
             'loc': loc, 'colors': load_tag_colors(L, loc), 'hist': load_country_history(L),
             'prov': load_province_history(L), 'cgroups': cgroups, 'corder': corder, 'cmembers': cmembers,
             'religions': load_religions(L), 'geo': load_geography(L),
-            'lore_texts': load_defined_text(L, LORE_DEFINED_TEXT),
+            'defined_texts': load_defined_texts(L),
             'water': load_ids_list(dm, 'sea_starts') | load_ids_list(dm, 'lakes'),
             'wasteland': load_ids_list(parse_file(L.file('map/climate.txt')), 'impassable'),
             'series_aba': load_series(L), 'series_ab': load_series(Lab), 'sprites': load_sprites(L),
@@ -885,16 +951,31 @@ def main():
             dev[st['owner']] = dev.get(st['owner'], 0) + st['dev']
 
     # mission series: keep only those some tag gets, deduplicated across the two layers
-    out_series, sid, texts = [], {}, game['mission_texts']
+    out_series, sid, texts, raw = [], {}, game['mission_texts'], game['mission_raw']
 
-    def keep(s):
+    def text(i, lc):
+        """(title, desc) of a mission for a country; lc = (ctx, name, adjective)."""
+        if i not in raw:
+            return texts[i]
+        t, d = raw[i]
+        return clean_loc(resolve_loc(t, *lc, game)) or i, clean_loc(resolve_loc(d, *lc, game))
+
+    def keep(s, lc, mt):
+        """Index of the series in the page data. Its texts are filled for the first country that uses it;
+        other countries whose filled texts differ get theirs in mt ({mission id: [title, desc]})."""
         key = (s['file'], s['name'], json.dumps(s['missions']))
         if key not in sid:
             sid[key] = len(out_series)
             out_series.append({
                 'name': s['name'], 'file': s['file'], 'slot': s['slot'],
-                'missions': [{**m, 'title': texts[m['id']][0], 'desc': texts[m['id']][1]} for m in s['missions']],
+                'missions': [{**m, 'title': tx[0], 'desc': tx[1]} for m in s['missions'] for tx in [text(m['id'], lc)]],
             })
+        else:
+            for m in out_series[sid[key]]['missions']:
+                if m['id'] in raw:
+                    tx = text(m['id'], lc)
+                    if tx != (m['title'], m['desc']):
+                        mt[m['id']] = list(tx)
         return sid[key]
 
     # Ante Bellum trees only for the tags in ab.txt: their mapped files, or else the AB series they match
@@ -925,20 +1006,28 @@ def main():
         if lore not in lore_idx:
             lore_idx[lore] = len(lore_list)
             lore_list.append(lore)
+        lc, mt = (ctx, name, clean_loc(loc.get(t + '_ADJ')) or name), {}
         tags[t] = {
             'name': name,
             'color': colors.get(t),
             'culture': st.get('primary_culture'), 'religion': st.get('religion'),
             'provs': provs.get(t, 0), 'dev': dev.get(t, 0), 'lore': lore_idx[lore],
-            'aba': [keep(series_aba[i]) for i in aba_idx],
-            'ab': [keep(series_ab[i]) for i in ab_idx],
+            'aba': [keep(series_aba[i], lc, mt) for i in aba_idx],
+            'ab': [keep(series_ab[i], lc, mt) for i in ab_idx],
         }
+        if mt:
+            tags[t]['mt'] = mt
         if len(ab_forms) > 1:  # switchable trees: a label that is a tag means forming that country
             def form(label, idx):
-                f = {'label': label, 'ab': [keep(series_ab[i]) for i in idx]}
-                if label.upper() in form_tags:
+                f, flc, fmt = {'label': label}, lc, {}
+                if label.upper() in form_tags:  # its texts use the formed country's name
                     f['tag'] = label.upper()
-                    f['label'] = 'Form ' + (clean_loc(loc.get(f['tag'])) or f['tag'])
+                    fname = clean_loc(loc.get(f['tag'])) or f['tag']
+                    f['label'] = 'Form ' + fname
+                    flc = (ctx, fname, clean_loc(loc.get(f['tag'] + '_ADJ')) or fname)
+                f['ab'] = [keep(series_ab[i], flc, fmt) for i in idx]
+                if fmt:
+                    f['mt'] = fmt
                 return f
             tags[t]['abForms'] = [form(lb or name, idx) for lb, idx in ab_forms]
 
@@ -1034,6 +1123,10 @@ def main():
     for s in out_series:
         s['missions'] = [[mindex[m['id']], m['icon'], m['pos'], [mindex.get(r, r) for r in m['req']], m['title'], m['desc']]
                          for m in s['missions']]
+    for x in tags.values():  # per-country mission texts, keyed by the same indexes
+        for o in [x] + x.get('abForms', []):
+            if 'mt' in o:
+                o['mt'] = {mindex[i]: v for i, v in o['mt'].items()}
     tag_bbox = {}  # per country, merged from its provinces' boxes
     for pid, b in pimg['bbox'].items():
         t = p_owner[pid] if pid < nprov else ''

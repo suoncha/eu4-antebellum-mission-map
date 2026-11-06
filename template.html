@@ -719,7 +719,7 @@ function renderDetail() {
   panel.querySelectorAll('[data-form]').forEach(b => b.onclick = () => {
     const y = panel.scrollTop; formState[t] = +b.dataset.form; treeState = {}; renderDetail(); panel.scrollTop = y;
   });
-  if (showTree && list.length) renderTree(list);
+  if (showTree && list.length) renderTree(list, (forms ? forms[form].mt : useAB ? x.mt : null) || {});
 }
 
 // mission tree: five slot columns; series in one slot that overlap become switchable branches
@@ -742,14 +742,16 @@ function treeLayout(list) {
 }
 // Laid out like EU4: one column per slot (at least 5, empty slots stay empty), one row per position,
 // and arrows from each required mission to the missions that need it.
-function renderTree(list) {
+// mt: this country's own texts for missions whose titles/descriptions depend on the country
+function renderTree(list, mt = {}) {
   const lay = treeLayout(list), slots = Object.keys(lay).map(Number).sort((a, b) => a - b);
   const pick = s => Math.min(treeState[s] || 0, lay[s].length - 1);
   const col = s => Math.max(1, s), cols = Math.max(5, ...slots.map(col));
   const hasTabs = slots.some(s => lay[s].length > 1), first = hasTabs ? 2 : 1;  // row of position 1
   let maxPos = 1;
   const cells = [], byId = {};
-  for (const s of slots) for (const i of lay[s][pick(s)].series) for (const m of D.series[i].missions) {
+  for (const s of slots) for (const i of lay[s][pick(s)].series) for (let m of D.series[i].missions) {
+    if (mt[m.id]) m = { ...m, title: mt[m.id][0], desc: mt[m.id][1] };
     byId[m.id] = m; maxPos = Math.max(maxPos, m.pos); cells.push({ m, col: col(s), row: m.pos + first - 1 });
   }
   const tabs = slots.filter(s => lay[s].length > 1).map(s => `<div class="tabs" style="grid-column:${col(s)};grid-row:1">${
@@ -761,7 +763,7 @@ function renderTree(list) {
   const el = $('tree');
   el.innerHTML = `<div class="tgrid" style="--cols:${cols};grid-template-rows:${hasTabs ? 'auto ' : ''}repeat(${maxPos}, auto)"><svg class="arrows" aria-hidden="true"></svg>${tabs}${body}</div>`;
   el._missions = byId;
-  el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { treeState[b.dataset.slot] = +b.dataset.v; renderTree(list); });
+  el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { treeState[b.dataset.slot] = +b.dataset.v; renderTree(list, mt); });
   const grid = el.firstElementChild;
   drawArrows(grid);
   treeResize.disconnect(); treeResize.observe(grid);  // cards are 1fr wide: redraw when the panel resizes
