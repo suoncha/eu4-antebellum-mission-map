@@ -84,7 +84,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .shield .nm { font-size: .72rem; font-weight: 600; background: var(--panel); padding: 0 5px; border-radius: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* side panel */
-aside { width: 440px; max-width: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
+aside { position: relative; width: 440px; max-width: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
+/* branching paths: pinned to the sidebar's left edge (over the map), so they stay put while the tree scrolls */
+.rail { position: absolute; right: 100%; top: 96px; z-index: 5; width: 128px; max-height: calc(100% - 112px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px; padding: 8px 6px; background: var(--panel); border: 1px solid var(--line);
+  border-right: 0; border-radius: 4px 0 0 4px; box-shadow: -2px 2px 8px rgb(0 0 0 / .15); }
+.rail[hidden] { display: none; }
+.rail .rg { display: flex; flex-direction: column; gap: 3px; }
+.rail .rh { font: 600 .64rem var(--f-mono); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 2px 2px; }
+.rail button { font: 600 .76rem var(--f-body); text-align: left; line-height: 1.2; border: 1px solid var(--line); background: var(--panel);
+  color: var(--ink); border-radius: 2px; padding: 4px 6px; cursor: pointer; }
+.rail button[aria-pressed="true"] { background: var(--accent); color: var(--panel); border-color: var(--accent); }
 .ph { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
 .ph input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 3px; }
 .pb { overflow-y: auto; padding: 12px 14px 24px; flex: 1; min-height: 0; }
@@ -142,6 +152,10 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
 @media (max-width: 760px) {
   .main { flex-direction: column; }
   aside { width: 100%; height: 48%; border-left: 0; border-top: 1px solid var(--line); }
+  .rail { position: static; order: 1; width: auto; max-height: none; flex-direction: row; overflow-x: auto; gap: 12px;
+    border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none; padding: 6px 10px; }
+  .rail .rg { flex-direction: row; align-items: center; flex: none; } .rail .rh { padding: 0 4px 0 0; }
+  .ph { order: 0; } .pb { order: 2; }
   .legend { margin-left: 0; }
   .hint { display: none; }
   .modes { top: 6px; max-width: calc(100% - 60px); left: 8px; transform: none; }
@@ -179,6 +193,7 @@ textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); 
         <button class="btn" id="back" hidden>Back</button>
       </div>
       <div class="pb" id="panel"></div>
+      <nav class="rail" id="rail" aria-label="Mission paths" hidden></nav>
     </aside>
   </div>
 </div>
@@ -195,6 +210,7 @@ const D = JSON.parse(await new Response((await unpack('/*__DATA__*/', 'applicati
 for (const s of D.series) s.missions = s.missions.map(([id, icon, pos, req, title, desc]) =>
   ({ id: String(id), icon, pos, req: req.map(String), title, desc }));
 const $ = id => document.getElementById(id);
+const rail = $('rail');  // the branching path buttons, pinned beside the side panel
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = n => n.toLocaleString('en-US');
 
@@ -620,6 +636,7 @@ function matches(t) {
   return !q || t.toLowerCase().includes(q) || tagName(t).toLowerCase().includes(q);
 }
 function renderList() {
+  rail.hidden = true;
   const all = Object.keys(D.tags).filter(matches).sort(byName);
   let html = '';
   if (mode === 'actum') {
@@ -669,6 +686,7 @@ panel.addEventListener('toggle', e => {
 
 // ---------------------------------------------------------------- side panel: country detail
 const formState = {};  // chosen switchable tree per tag (ab.txt "A | B: files")
+const branchState = {};  // chosen branching path per tag | tree | pack
 function select(t, focus = true) {
   selected = t; paint(); renderShields();
   $('back').hidden = !t;
@@ -685,7 +703,13 @@ function renderDetail() {
     : mode === 'ante-bellum' && ABT.has(t) ? '<span class="chip d">Ante Bellum mission tree</span>' : '';
   const useAB = mode === 'ante-bellum';
   const forms = useAB && x.abForms, form = forms ? Math.min(formState[t] || 0, forms.length - 1) : 0;
-  const list = (forms ? forms[form].ab : useAB ? x.ab : x.aba) || [];
+  const tr = forms ? forms[form] : useAB ? x : { ab: x.aba };  // this tree: series, own texts, branch packs
+  // branching paths: a pack's series show only for the chosen option (default: the first, before choosing)
+  const packs = tr.br || [], bkey = k => t + '|' + form + '|' + k;
+  const choice = packs.map((p, k) => Math.min(branchState[bkey(k)] || 0, p.length - 1));
+  const inPack = new Set(packs.flatMap(p => p.flatMap(o => o[1])));
+  const shownPack = new Set(packs.flatMap((p, k) => p[choice[k]][1]));
+  const list = (tr.ab || []).filter(i => !inPack.has(i) || shownPack.has(i));
   const showTree = mode === 'actum' || mode === 'ante-bellum';
   const sec = (id, title, cnt, body) => `<details data-sec="${id}"${openState[id] ?? true ? ' open' : ''}><summary><span>${title}</span><span class="cnt">${cnt}</span></summary><div class="body">${body}</div></details>`;
   let extra;
@@ -716,54 +740,73 @@ function renderDetail() {
       ${D.lore[x.lore] ? `<p class="lore">${esc(D.lore[x.lore])}</p>` : '<p class="empty">No lore text for this country in the game files.</p>'}</div></details>
     ${extra}`;
   panel.scrollTop = 0;
-  panel.querySelectorAll('[data-form]').forEach(b => b.onclick = () => {
-    const y = panel.scrollTop; formState[t] = +b.dataset.form; treeState = {}; renderDetail(); panel.scrollTop = y;
-  });
-  if (showTree && list.length) renderTree(list, (forms ? forms[form].mt : useAB ? x.mt : null) || {});
+  const rerender = f => b => b.onclick = () => { const y = panel.scrollTop; f(b); treeState = {}; renderDetail(); panel.scrollTop = y; };
+  panel.querySelectorAll('[data-form]').forEach(rerender(b => formState[t] = +b.dataset.form));
+  rail.hidden = true;
+  if (showTree && list.length) renderTree(list, tr.mt || {}, packs.map((p, k) => ({
+    opts: p, pick: choice[k], set: j => { const y = panel.scrollTop; branchState[bkey(k)] = j; treeState = {}; renderDetail(); panel.scrollTop = y; },
+  })));
 }
 
 // mission tree: five slot columns; series in one slot that overlap become switchable branches
 let treeState = {};
+// (Branching paths are switched as whole packs before this; these layers only cover overlaps no flag explains.)
+// Rail labels for overlapping series: the words their names don't all share (ger_fifth_group_prussia: Prussia).
+function seriesLabels(names) {
+  const w = names.map(n => n.toLowerCase().split(/[_\s]+/).filter(Boolean));
+  const shared = new Set(w[0].filter(x => w.every(v => v.includes(x))));
+  return w.map((v, k) => v.filter(x => !shared.has(x)).map(x => x[0].toUpperCase() + x.slice(1)).join(' ') || 'Main ' + (k + 1));
+}
+// A series that overlaps no other one in its slot is in every layer, so a tab never hides it.
 function treeLayout(list) {
   const slots = {};
   for (const i of list) { const s = D.series[i]; (slots[s.slot] = slots[s.slot] || []).push(i); }
   const out = {};
   for (const k of Object.keys(slots)) {
-    const layers = [];
-    for (const i of slots[k]) {
-      const pos = new Set(D.series[i].missions.map(m => m.pos));
-      let L = layers.find(l => !l.pos.some(p => pos.has(p)));
-      if (!L) layers.push(L = { pos: [], series: [] });
-      L.series.push(i); L.pos.push(...pos);
+    const pos = Object.fromEntries(slots[k].map(i => [i, new Set(D.series[i].missions.map(m => m.pos))]));
+    const clash = i => slots[k].some(j => j !== i && [...pos[i]].some(p => pos[j].has(p)));
+    const fixed = slots[k].filter(i => !clash(i)), layers = [];
+    for (const i of slots[k].filter(clash)) {
+      let L = layers.find(l => !l.pos.some(p => pos[i].has(p)));
+      if (!L) layers.push(L = { pos: [], own: [] });
+      L.own.push(i); L.pos.push(...pos[i]);
     }
-    out[k] = layers;
+    out[k] = layers.length ? layers.map(l => ({ own: l.own, series: [...fixed, ...l.own] })) : [{ own: fixed, series: fixed }];
   }
   return out;
 }
 // Laid out like EU4: one column per slot (at least 5, empty slots stay empty), one row per position,
 // and arrows from each required mission to the missions that need it.
 // mt: this country's own texts for missions whose titles/descriptions depend on the country
-function renderTree(list, mt = {}) {
+// packs: [{opts: [[label, [series]], ...], pick, set(option)}], the flag-switched paths (see renderDetail)
+function renderTree(list, mt = {}, packs = []) {
   const lay = treeLayout(list), slots = Object.keys(lay).map(Number).sort((a, b) => a - b);
   const pick = s => Math.min(treeState[s] || 0, lay[s].length - 1);
-  const col = s => Math.max(1, s), cols = Math.max(5, ...slots.map(col));
-  const hasTabs = slots.some(s => lay[s].length > 1), first = hasTabs ? 2 : 1;  // row of position 1
+  const col = s => Math.max(1, s), cols = Math.max(5, ...slots.map(col)), first = 1;  // row of position 1
   let maxPos = 1;
   const cells = [], byId = {};
   for (const s of slots) for (const i of lay[s][pick(s)].series) for (let m of D.series[i].missions) {
     if (mt[m.id]) m = { ...m, title: mt[m.id][0], desc: mt[m.id][1] };
     byId[m.id] = m; maxPos = Math.max(maxPos, m.pos); cells.push({ m, col: col(s), row: m.pos + first - 1 });
   }
-  const tabs = slots.filter(s => lay[s].length > 1).map(s => `<div class="tabs" style="grid-column:${col(s)};grid-row:1">${
-    lay[s].map((l, k) => `<button data-slot="${s}" data-v="${k}" aria-pressed="${k === pick(s)}" title="${esc(l.series.map(i => D.series[i].name).join(', '))}">${String.fromCharCode(65 + k)}</button>`).join('')}</div>`).join('');
+  // the rail: one group per flag pack, then one per slot whose series overlap without a flag (e.g. Germany's
+  // state groups), labelled by the words their series names don't share
+  const groups = packs.map((p, k) => ({ head: `Branching ${k + 1}`, opts: p.opts.map(o => o[0]), pick: p.pick, set: p.set }));
+  for (const s of slots.filter(s => lay[s].length > 1)) {
+    const names = seriesLabels(lay[s].map(l => l.own.map(i => D.series[i].name).join(' ')));
+    groups.push({ head: `Branching ${groups.length + 1}`, opts: names, pick: pick(s), set: k => { treeState[s] = k; renderTree(list, mt, packs); } });
+  }
+  rail.innerHTML = groups.map((g, k) => `<div class="rg" role="group" aria-label="${esc(g.head)}"><span class="rh">${esc(g.head)}</span>${
+    g.opts.map((o, j) => `<button data-g="${k}" data-o="${j}" aria-pressed="${j === g.pick}">${esc(o)}</button>`).join('')}</div>`).join('');
+  rail.hidden = !groups.length;
+  rail.querySelectorAll('button').forEach(b => b.onclick = () => groups[b.dataset.g].set(+b.dataset.o));
   const body = cells.map(({ m, col, row }) => {
     const ic = sprite('msnIcons', m.icon, 40, 'mi') || '<span class="mi"></span>';
     return `<div class="card" tabindex="0" data-m="${esc(m.id)}" data-c="${col}" data-r="${row}" style="grid-column:${col};grid-row:${row}">${ic}<span class="mt">${esc(m.title)}</span></div>`;
   }).join('');
   const el = $('tree');
-  el.innerHTML = `<div class="tgrid" style="--cols:${cols};grid-template-rows:${hasTabs ? 'auto ' : ''}repeat(${maxPos}, auto)"><svg class="arrows" aria-hidden="true"></svg>${tabs}${body}</div>`;
+  el.innerHTML = `<div class="tgrid" style="--cols:${cols};grid-template-rows:repeat(${maxPos}, auto)"><svg class="arrows" aria-hidden="true"></svg>${body}</div>`;
   el._missions = byId;
-  el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { treeState[b.dataset.slot] = +b.dataset.v; renderTree(list, mt); });
   const grid = el.firstElementChild;
   drawArrows(grid);
   treeResize.disconnect(); treeResize.observe(grid);  // cards are 1fr wide: redraw when the panel resizes

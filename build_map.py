@@ -464,8 +464,11 @@ def resolve_loc(s, ctx, name, adj, g, depth=0):
 # ---------------------------------------------------------------- missions
 
 class Ctx:
-    def __init__(self, tag, st, cgroups, religions, geo=None):
+    """A country's 1444 state for ev(). was: the tags it counts as for was_tag (a formed country adds its
+    old tag); switch: {(has_country_flag | has_country_modifier, name): bool} assumed by branch_packs()."""
+    def __init__(self, tag, st, cgroups, religions, geo=None, was=None, switch=None):
         self.tag, self.st, self.cg, self.rel, self.geo = tag, st, cgroups, religions, geo or {}
+        self.was, self.switch = was or {tag}, switch or {}
 
 
 U = None  # unknown in three-valued logic
@@ -536,8 +539,12 @@ def ev(k, v, c):
     if kl == 'is_random_new_world':  # historical map only
         return {'yes': False, 'no': True}.get(v, U)
     st = c.st
-    if kl in ('tag', 'was_tag'):
+    if kl == 'tag':
         return v == c.tag if TAG_RE.fullmatch(v) else U
+    if kl == 'was_tag':
+        return v in c.was if TAG_RE.fullmatch(v) else U
+    if kl in SWITCH_KEYS:
+        return c.switch.get((kl, v), U)
     if kl == 'primary_culture':
         return st.get('primary_culture') == v
     if kl == 'culture_group':
@@ -557,6 +564,98 @@ def ev(k, v, c):
     if kl == 'has_dlc':
         return True
     return U
+
+
+SWITCH_KEYS = ('has_country_flag', 'has_country_modifier')
+
+
+def switch_vars(items):
+    """{(key, name)} of the country flags and modifiers a trigger block checks, at any depth."""
+    out = set()
+    for k, v in items:
+        if isinstance(v, list):
+            out |= switch_vars(v)
+        elif k.lower() in SWITCH_KEYS and isinstance(v, str):
+            out.add((k.lower(), v))
+    return out
+
+
+def pretty_switch(names, loc):
+    """Button labels for switch variables: their localisation if any, else the names without the prefix and
+    suffix they all share (fra_monarchy_focus, fra_communist_focus -> Monarchy, Communist)."""
+    parts = [n.split('_') for n in names]
+    pre = suf = 0
+    if len(parts) > 1:
+        while all(len(p) > pre + suf + 1 for p in parts) and len({p[pre] for p in parts}) == 1:
+            pre += 1
+        while all(len(p) > pre + suf + 1 for p in parts) and len({p[-1 - suf] for p in parts}) == 1:
+            suf += 1
+    return {n: clean_loc(loc.get(n)) or ' '.join(w.capitalize() for w in p[pre:len(p) - suf])
+            for n, p in zip(names, parts)}
+
+
+def branch_packs(series, ctx, loc, max_vars=10):
+    """Branching paths of a tree: series whose potentials check the same country flags/modifiers form a
+    pack, and choosing a path (setting a flag) swaps the whole pack at once. Every flag assignment is tried;
+    the distinct sets of visible series (none sharing a slot position) are the options, named after the
+    smallest assignment giving each. Returns (packs, hidden): packs = [[(label, [series positions]), ...]]
+    with the default (fewest flags set, labelled Default) first; hidden = series positions no option shows."""
+    vars_of = [switch_vars(s['potential']) for s in series]
+    parent = {}
+
+    def find(x):
+        while parent.setdefault(x, x) != x:
+            x = parent[x]
+        return x
+    for vs in vars_of:
+        vs = sorted(vs)
+        for a in vs[1:]:
+            parent[find(a)] = find(vs[0])
+        if vs:
+            find(vs[0])
+    comps = {}
+    for v in parent:
+        comps.setdefault(find(v), []).append(v)
+    packs, hidden = [], set()
+    for comp in comps.values():
+        comp = sorted(comp)
+        members = [i for i, vs in enumerate(vars_of) if vs & set(comp)]
+        if len(comp) > max_vars:
+            continue
+        options = {}  # frozenset(visible) -> the smallest assignments (lists of True variables) giving it
+        for bits in range(1 << len(comp)):
+            on = [v for j, v in enumerate(comp) if bits >> j & 1]
+            c = Ctx(ctx.tag, ctx.st, ctx.cg, ctx.rel, ctx.geo, ctx.was, {v: v in on for v in comp})
+            vis = [i for i in members if ev_block(series[i]['potential'], c) is not False]
+            cells = [c for i in vis for c in {(series[i]['slot'], m['pos']) for m in series[i]['missions']}]
+            if not vis or len(cells) != len(set(cells)):  # two visible series on one slot position
+                continue
+            key = frozenset(vis)
+            if key not in options or len(on) < len(options[key][0]):
+                options[key] = [on]
+            elif len(on) == len(options[key][0]):
+                options[key].append(on)
+        # a set that is part of another one comes from flags that hide one path without unlocking another
+        # (two religions picked at once): not a real choice
+        options = {k: v for k, v in options.items() if not any(k < o for o in options)}
+        if not options:
+            continue
+        shown = set().union(*options)
+        hidden |= set(members) - shown
+        if len(options) < 2:
+            continue
+        always = frozenset.intersection(*options)  # in every option: not part of the choice
+        options = {k - always: v for k, v in options.items()}
+        opts = sorted(options.items(), key=lambda o: (len(o[1][0]), min(o[0], default=-1)))
+        rest = [set(on) for _, ons in opts[1:] for on in ons]
+        common = set.intersection(*rest) if len(rest) > 1 else set()  # set by every choice: not a label
+        names = pretty_switch(sorted({v[1] for _, ons in opts for on in ons for v in on if v not in common}), loc)
+        pack = []
+        for vis, ons in opts:
+            alts = [' + '.join(names[v[1]] for v in on if v not in common) for on in ons]
+            pack.append((' / '.join(a for a in alts if a) or 'Default', sorted(vis)))
+        packs.append(pack)
+    return packs, hidden
 
 
 def identity_leaves(items):
@@ -978,6 +1077,13 @@ def main():
                         mt[m['id']] = list(tx)
         return sid[key]
 
+    def tree(src, idx, ctx, lc, mt):
+        """(series indexes in the page data, branching packs) of a country's tree. Series no branch
+        choice shows are left out; packs = [[label, [series indexes]], ...], default option first."""
+        packs, hidden = branch_packs([src[i] for i in idx], ctx, loc)
+        out = {k: keep(src[i], lc, mt) for k, i in enumerate(idx) if k not in hidden}
+        return list(out.values()), [[[lb, [out[k] for k in ks]] for lb, ks in p] for p in packs]
+
     # Ante Bellum trees only for the tags in ab.txt: their mapped files, or else the AB series they match
     alive_set = set(alive)
     ab_tree = [t for t in ab_map if t in alive_set]
@@ -1012,20 +1118,27 @@ def main():
             'color': colors.get(t),
             'culture': st.get('primary_culture'), 'religion': st.get('religion'),
             'provs': provs.get(t, 0), 'dev': dev.get(t, 0), 'lore': lore_idx[lore],
-            'aba': [keep(series_aba[i], lc, mt) for i in aba_idx],
-            'ab': [keep(series_ab[i], lc, mt) for i in ab_idx],
+            'aba': tree(series_aba, aba_idx, ctx, lc, mt)[0],
         }
+        tags[t]['ab'], br = tree(series_ab, ab_idx, ctx, lc, mt)
+        if br:
+            tags[t]['br'] = br
         if mt:
             tags[t]['mt'] = mt
         if len(ab_forms) > 1:  # switchable trees: a label that is a tag means forming that country
             def form(label, idx):
-                f, flc, fmt = {'label': label}, lc, {}
+                f, fctx, flc, fmt = {'label': label}, ctx, lc, {}
                 if label.upper() in form_tags:  # its texts use the formed country's name
-                    f['tag'] = label.upper()
-                    fname = clean_loc(loc.get(f['tag'])) or f['tag']
+                    f['tag'] = ft = label.upper()
+                    fname = clean_loc(loc.get(ft)) or ft
                     f['label'] = 'Form ' + fname
-                    flc = (ctx, fname, clean_loc(loc.get(f['tag'] + '_ADJ')) or fname)
-                f['ab'] = [keep(series_ab[i], flc, fmt) for i in idx]
+                    flc = (ctx, fname, clean_loc(loc.get(ft + '_ADJ')) or fname)
+                    # branch packs are evaluated as the formed country (its series check tag = GER); every
+                    # series of the mapped files stays, e.g. all of Germany's state-specific fifth groups
+                    fctx = Ctx(ft, st, cgroups, religions, geo, {ft, t})
+                f['ab'], fbr = tree(series_ab, idx, fctx, flc, fmt)
+                if fbr:
+                    f['br'] = fbr
                 if fmt:
                     f['mt'] = fmt
                 return f
