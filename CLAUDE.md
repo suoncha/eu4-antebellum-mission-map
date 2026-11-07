@@ -139,8 +139,9 @@ preview of its mission tree.
 - **Map modes:** a bar at the top middle of the map, also on number keys, and synced with the URL hash
   (`#ante-bellum`, `#religion`, `#culture`). The first entry in `MODES` is the default.
   1. **Actum:** currently **disabled** via `ACTUM_MODE = False` in build_map.py (the user will revisit it
-     after the other modes): no Actum trees are computed or embedded and `MODES` leaves it out
-     (`D.actum`). Its code stays: highlighted, striped or grey; right click toggles a tag's dedicated
+     after the other modes): no Actum trees are computed or embedded, `MODES` leaves it out
+     (`D.actum`), and `MOD_ROOT` isn't read at all (its outdated culture files used to hide AB 1.10's),
+     so everything comes from `D:/ab`. Its code stays: highlighted, striped or grey; right click toggles a tag's dedicated
      tree (guarded off while the mode is hidden); a textarea with Apply and Reset (saved per viewer in
      localStorage), plus sections for Dedicated / Additional content / No mission tree.
   2. **Ante Bellum** (default now): `ab.txt` tags versus grey.

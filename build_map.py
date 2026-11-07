@@ -1075,7 +1075,7 @@ def main():
     for r in roots:
         if not os.path.isdir(r):
             sys.exit(f'Game folder not found: {r}\nSet ROOTS at the top of {os.path.basename(__file__)}.')
-    full_roots = roots + ([mod] if os.path.isdir(mod) else [])
+    full_roots = roots + ([mod] if ACTUM_MODE and os.path.isdir(mod) else [])  # the mod folder only with Actum on
     L, Lab = Layers(full_roots), Layers(roots)
 
     dedicated = read_tags(here(SUBMOD_FILE))
