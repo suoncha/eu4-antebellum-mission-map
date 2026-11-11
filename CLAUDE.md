@@ -11,11 +11,11 @@ with map modes, bookmark-style shields, and a side panel showing each country's 
 preview of its mission tree.
 
 - `build_map.py` takes no arguments. Its settings are constants at the top: `ROOTS` (`D:/ab`, which is
-  vanilla with AB merged in), `MOD_ROOT` (`D:/modding/aba`), `SUBMOD_FILE`, `ADDITIONAL_FILE`,
-  `FAVORITES_FILE`, `AB_FILE`, `AB_MISSION_FILES` (`AB_*.txt`), `CULTURE_COLORS_FILE`, `OUTPUT`
+  vanilla with AB merged in), `MOD_ROOT` (`D:/modding/aba`), `ACTUM_FILE`, `ADDITIONAL_FILE`,
+  `FAVORITES_FILE`, `ACTUM_FAVORITES_FILE`, `AB_FILE`, `AB_MISSION_FILES` (`AB_*.txt`), `CULTURE_COLORS_FILE`, `OUTPUT`
   (`index.html`), `TITLE` (user set it to `Ante Bellum`), `SUBTITLE`, `SCALE` (user set it to 1),
   `CACHE_DIR` (`.cache`), `MUSIC_FILE` (`theme.ogg`), `MUSIC_BITRATE` (`64k`: re-encoded to Opus with ffmpeg,
-  the user's choice; `''` = as is), `ACTUM_MODE` (`False`), `ATLAS_FORMAT`/`ATLAS_QUALITY` (`AVIF`, 60) and
+  the user's choice; `''` = as is), `ATLAS_FORMAT`/`ATLAS_QUALITY` (`AVIF`, 60) and
   `LORE_DEFINED_TEXT`.
   Relative paths resolve from the script's own folder. Run it with `python build_map.py`, which needs
   `pip install pillow numpy`.
@@ -28,9 +28,13 @@ preview of its mission tree.
   so it can top-level `await`: `unpack()` decodes base64 with `fetch('data:…')`, `DecompressionStream`
   unzips the JSON. Module scope means page functions aren't globals (test probes go inside the module).
 - `country_setup/` holds the tag lists (`#` starts a comment):
-  - `submod.txt` (was `tags.txt`): tags with a dedicated Actum mission tree, drawn highlighted.
-  - `additional.txt`: tags with new content but no new tree, drawn striped.
-  - `favorites.txt`: the shields shown at the bottom middle of the map.
+  - `actum.txt` (replaced `submod.txt` on 2026-11-11): tags with an Actum mission tree, highlighted in
+    the Actum mode. Same syntax as `ab.txt` (auto-detect, `TAG = files`, `|` variants, "found:" comments).
+    15 tags: WLS BAV STY LIT LVA BOH MVA PLN LUD NOV YUA ROB SLH KRR KUC.
+  - `additional.txt`: tags with new Actum content but no new tree, drawn striped in the Actum mode
+    (NOR DAN SWE SCO).
+  - `favorites.txt`: the shields at the bottom middle of the map in every mode but Actum.
+  - `actum_favorites.txt`: the shields in the Actum mode (CAP NCI PLN ZAZ SLH).
   - `ab.txt`: tags with an Ante Bellum tree, one per line, optionally `TAG = file.txt file2.txt`
     (`read_tag_map`). Switchable trees are separated by `|`, each `Label: files`; the first is the
     original (label optional, empty files = auto-detect). A label that is a tag shows as "Form <country>"
@@ -56,7 +60,10 @@ preview of its mission tree.
 - Settings live in the script, not in CLI arguments. Tag lists come from the txt files only.
 - Only two visual states exist for missions: highlighted (dedicated tree) or greyed out (none), plus
   striped for additional content. There is no "hatched/shared" category; that was removed on purpose.
-- Actum dedicated tags are curated by hand in `submod.txt`, not detected automatically.
+- Actum tree tags are curated by hand in `actum.txt`, not detected automatically.
+- **One world:** every map mode shows AB with the submod layered on top (starting countries, the
+  Americas especially, histories, cultures, religions, flags, lore). The modes differ only in the trees:
+  Ante Bellum = vanilla AB trees, Actum = the submod's trees. (A two-world design was rejected.)
 - AB tags are curated by hand in `ab.txt` (generated once on 2026-11-02 from AB-file matching; 57 tags
   that only vanilla files mention are there commented out). The user maps shared trees themselves,
   e.g. Persian tags → `AB_Persia_PER.txt`.
@@ -102,7 +109,13 @@ preview of its mission tree.
   every branch variant gets included. A series matches if one of its identity conditions outside a
   `NOT` holds and its potential isn't False. For speed, each series' identity conditions are a
   precomputed set (`identity_leaves`) intersected with the country's `identity_facts`.
-  - The Actum trees use all series from `ROOTS` + `MOD_ROOT`.
+  - The world (`L`) is always `ROOTS` + `MOD_ROOT`; only the AB mission files come from `ROOTS` alone
+    (`Lab`). The submod's culture files predate AB 1.10, so e.g. Toledan has no group until they are
+    updated; its `punic_g` group has no colour in culture.txt (generated).
+  - The Actum trees: only for tags in `actum.txt`; candidates are the merged layer's `AB_*` series (the
+    submod's file wins over AB's of the same name) plus every file in `MOD_ROOT/missions` (`ABMP_*`,
+    `TLW_*`). Both tree kinds go through one loop (`KINDS`) and the `tree()` helper; Actum data is
+    `tags[t].act`, `actForms`, `actBr`, `actMt` (AB: `ab`, `abForms`, `br`, `mt`).
   - The AB trees: only series in `AB_MISSION_FILES` from `ROOTS` (`D:/ab` also holds vanilla files),
     and only for tags in `ab.txt`: mapped files → all their series, else the matching series. The
     Ante Bellum mode highlights the `ab.txt` tags on the map (`abTree`). Variants from `|` go to
@@ -138,19 +151,19 @@ preview of its mission tree.
 
 - **Map modes:** a bar at the top middle of the map, also on number keys, and synced with the URL hash
   (`#ante-bellum`, `#religion`, `#culture`). The first entry in `MODES` is the default.
-  1. **Actum:** currently **disabled** via `ACTUM_MODE = False` in build_map.py (the user will revisit it
-     after the other modes): no Actum trees are computed or embedded, `MODES` leaves it out
-     (`D.actum`), and `MOD_ROOT` isn't read at all (its outdated culture files used to hide AB 1.10's),
-     so everything comes from `D:/ab`. Its code stays: highlighted, striped or grey; right click toggles a tag's dedicated
-     tree (guarded off while the mode is hidden); a textarea with Apply and Reset (saved per viewer in
-     localStorage), plus sections for Dedicated / Additional content / No mission tree.
-  2. **Ante Bellum** (default now): `ab.txt` tags versus grey.
+  1. **Ante Bellum** (default): `ab.txt` tags versus grey; vanilla AB trees.
+  2. **Actum** (restored 2026-11-11): `actum.txt` tags highlighted, `additional.txt` striped, otherwise
+     grey; the submod's trees. The old in-page editor (textarea, right-click toggle, localStorage) is gone.
   3. **Religion:** provinces coloured by religion. The side panel groups countries by religion, with
      religion-group headings and icons.
   4. **Culture:** provinces coloured by culture. The side panel groups countries by culture group.
-- **Shields:** shown at the bottom middle for the tags in `favorites.txt`. The shield shape is drawn
+- **Shields:** shown at the bottom middle for the tags in `favorites.txt` (`actum_favorites.txt` in the
+  Actum mode; redrawn only when the list changes, `favorites()`). The shield shape is drawn
   on the flag itself (same as the detail header), so the flag fills it. Clicking one selects that
   country and zooms to it.
+- **Shared list** (Ante Bellum and Actum modes): sections Ante Bellum mission tree / Actum mission tree /
+  No mission tree (neither); a country can be in both tree sections. A row in a tree section opens its
+  country in that section's mode (`data-mode`, `openRow`).
 - **List rows:** flag, name, code, and "N prov · D dev" on the right. Sections are collapsible
   `<details>` elements; a search opens only the sections that match. Closed sections get their rows
   only when first opened (`lazyRows`).
@@ -160,7 +173,11 @@ preview of its mission tree.
   its cultures as chips, the country's own highlighted (Culture).
   - The preview is laid out like EU4: one column per slot, always at least 5 (unused slots stay empty),
     one row per position, no "Slot N" labels.
-  - Form buttons (from `abForms`) sit above the tree; the choice is kept per tag in memory (`formState`).
+  - Status chips "Ante Bellum mission tree" / "Actum mission tree" are buttons that switch mode
+    (`data-go`); "Actum additional content" is a plain chip. A country with only the other mode's tree
+    shows a note with a "Show it" button. `TREE[mode](x)` picks the tree fields.
+  - Form buttons (from `abForms` / `actForms`) sit above the tree; the choice is kept per mode and tag in
+    memory (`formState`, `branchState`).
   - Branching paths are switched from a **rail** (`#rail`) pinned to the sidebar's left edge over the map
     (below the zoom buttons), so it stays put while the tree scrolls (modelled on AB's in-game mission
     preview tabs). Groups are headed "Branching 1", "Branching 2", …; the no-flag option is "Default".
@@ -183,7 +200,6 @@ preview of its mission tree.
     twice; test panel/tree changes with `--disable-gpu` (no globe, light) and one browser at a time.
     Launch Edge from PowerShell (`Start-Process … -RedirectStandardOutput … -Wait`): from the Bash tool it
     printed nothing.
-  - Ante Bellum mode shows the AB tree; Actum mode shows the Actum tree.
 - **Map rendering: WebGL 2 globe** (the user chose a 3D globe over a flat horizontal wrap).
   - Pass 1, `paint()`, runs on mode change, select, theme change and tag edits. `provinceColors()` fills
     per-province data textures (256 wide: colour + stripe flag, stripe colour, owner + water). A shader
@@ -222,9 +238,10 @@ preview of its mission tree.
   valid (~11–16 s with no cache). The output is about 4.7 MB with `SCALE = 1` (was 11.2 MB): music ~2 MB
   (Opus 64k base64; the user chose embedding over a separate file), gzipped text data ~1 MB (mission
   descriptions are 524 KB of the 600 KB of series text), atlases ~1.2 MB, province image 0.4 MB.
-- Page timings in headless Edge with `--disable-gpu` (no globe paint; 2026-11-07): startup ~200 ms
-  (~110 ms of it is the browser parsing the 4.7 MB HTML), select ~5 ms, back to list ~7 ms, mode switch
-  ~2.5 ms, JS heap 21.4 MB. Benchmark copies go in the scratchpad; compare against an older page with
+- With Actum restored (2026-11-11): 700 countries in the merged world, page 5.1 MB, warm build 0.75 s
+  (`main()`). Page timings in headless Edge with `--disable-gpu` (no globe paint): startup ~220 ms
+  (~110 ms of it is the browser parsing the HTML), select ~5 ms, back to list ~8 ms, mode switch ~2 ms
+  (Religion/Culture), ~8 ms (Ante Bellum, 300+ list rows), ~20 ms into Actum (new shields). Benchmark copies go in the scratchpad; compare against an older page with
   `git show <commit>:index.html`.
 - Older timings with SwiftShader (CPU-emulated GPU, noisy): startup script ~0.8 s; map ready ~2.7 s,
   dominated by emulated GPU setup; select ~15–50 ms, back to list ~50 ms, mode switch ~5–15 ms. Use real time (`--timeout`), not

@@ -29,14 +29,17 @@ from PIL import Image
 ROOTS = [
     r'D:/ab',
 ]
-# The Ante Bellum: Actum mod folder (its missions, localisation and flags override ROOTS).
+# The Ante Bellum: Actum mod folder. It is layered over ROOTS for the whole map (starting countries,
+# histories, cultures, religions, flags, lore, ...); only the Ante Bellum trees come from ROOTS alone.
 MOD_ROOT = 'D:/modding/aba'
 
-SUBMOD_FILE = 'country_setup/submod.txt'          # tags with a dedicated mission tree in Actum
-ADDITIONAL_FILE = 'country_setup/additional.txt'  # tags with other new content but no new tree
-FAVORITES_FILE = 'country_setup/favorites.txt'    # tags shown as shields at the bottom of the map
+ACTUM_FILE = 'country_setup/actum.txt'            # tags with an Actum tree, optionally mapped to files
+ADDITIONAL_FILE = 'country_setup/additional.txt'  # tags with other new Actum content but no new tree
+FAVORITES_FILE = 'country_setup/favorites.txt'    # shields at the bottom of the map (all modes but Actum)
+ACTUM_FAVORITES_FILE = 'country_setup/actum_favorites.txt'  # shields in the Actum mode
 AB_FILE = 'country_setup/ab.txt'                  # tags with an Ante Bellum tree, optionally mapped to files
 AB_MISSION_FILES = 'AB_*.txt'                     # mission files (in ROOTS) that hold Ante Bellum trees
+# Actum trees: these files in ROOTS + MOD_ROOT (the mod's versions win), plus every file in MOD_ROOT/missions
 CULTURE_COLORS_FILE = 'culture_setup/culture.txt' # base colour per culture group; written if missing
 
 OUTPUT = 'index.html'
@@ -46,7 +49,6 @@ SCALE = 1                           # map downscale factor; 1 = full resolution 
 CACHE_DIR = '.cache'                # parsed game files and resized images; delete it to force a full rebuild
 MUSIC_FILE = 'theme.ogg'            # music embedded in the page, with a play/pause button; '' for none
 MUSIC_BITRATE = '64k'               # re-encode the music to Opus at this bitrate (needs ffmpeg); '' to embed as is
-ACTUM_MODE = False                  # the Actum map mode and its mission trees; off for now
 ATLAS_FORMAT, ATLAS_QUALITY = 'AVIF', 60  # flag / icon sheets (AVIF is about 40 % smaller than WebP)
 
 # defined_text in customizable_localization/ that picks each country's start-screen lore.
@@ -469,10 +471,19 @@ def resolve_loc(s, ctx, name, adj, g, depth=0):
 
 class Ctx:
     """A country's 1444 state for ev(). was: the tags it counts as for was_tag (a formed country adds its
-    old tag); switch: {(has_country_flag | has_country_modifier, name): bool} assumed by branch_packs()."""
-    def __init__(self, tag, st, cgroups, religions, geo=None, was=None, switch=None):
+    old tag); tags: the tags it counts as for tag = (a '>TAG' chain counts as all of them at once);
+    switch: {(has_country_flag | has_country_modifier, name): bool} assumed by branch_packs() or a txt line;
+    strict: for a chain, the same country as only its final tag (decides which of two colliding series stays)."""
+    def __init__(self, tag, st, cgroups, religions, geo=None, was=None, switch=None, tags=None):
         self.tag, self.st, self.cg, self.rel, self.geo = tag, st, cgroups, religions, geo or {}
-        self.was, self.switch = was or {tag}, switch or {}
+        self.was, self.switch, self.tags, self.strict = was or {tag}, switch or {}, tags or {tag}, None
+
+    def copy(self, **changes):
+        c = Ctx(self.tag, self.st, self.cg, self.rel, self.geo, self.was, self.switch, self.tags)
+        c.strict = self.strict
+        for k, v in changes.items():
+            setattr(c, k, v)
+        return c
 
 
 U = None  # unknown in three-valued logic
@@ -544,10 +555,10 @@ def ev(k, v, c):
         return {'yes': False, 'no': True}.get(v, U)
     st = c.st
     if kl == 'tag':
-        return v == c.tag if TAG_RE.fullmatch(v) else U
+        return v in c.tags if TAG_RE.fullmatch(v) else U
     if kl == 'was_tag':
         return v in c.was if TAG_RE.fullmatch(v) else U
-    if kl in SWITCH_KEYS:
+    if kl in SWITCH_KEYS or kl in ASSUMABLE:
         return c.switch.get((kl, v), U)
     if kl == 'primary_culture':
         return st.get('primary_culture') == v
@@ -571,6 +582,7 @@ def ev(k, v, c):
 
 
 SWITCH_KEYS = ('has_country_flag', 'has_country_modifier')
+ASSUMABLE = ('has_government_attribute',)  # also set by '+name' in a txt line, but never a path choice
 
 
 def switch_vars(items):
@@ -582,6 +594,28 @@ def switch_vars(items):
         elif k.lower() in SWITCH_KEYS and isinstance(v, str):
             out.add((k.lower(), v))
     return out
+
+
+def with_switch(ctx, assume):
+    """ctx with the flags of an ab.txt / actum.txt line assumed ({name: set?}, for flags and modifiers)."""
+    if not assume:
+        return ctx
+    sw = {(k, n): v for n, v in assume.items() for k in SWITCH_KEYS + ASSUMABLE}
+    c = ctx.copy(switch={**ctx.switch, **sw})
+    if c.strict:
+        c.strict = c.strict.copy(switch=c.switch)
+    return c
+
+
+def with_chain(ctx, chain):
+    """ctx for a '>TAG >TAG' line: the country counts as its own tag and every formed one at once (so its
+    base, formable and final trees all show), plus a strict copy as only the final tag."""
+    if not chain:
+        return ctx
+    every = {ctx.tag, *chain}
+    c = ctx.copy(was=set(ctx.was) | every, tags=every)
+    c.strict = ctx.copy(tag=chain[-1], was=set(ctx.was) | every, tags={chain[-1]})
+    return c
 
 
 SERIES_VARS = {}  # id(series) -> (series, its switch_vars), computed once per run
@@ -614,7 +648,7 @@ def branch_packs(series, ctx, loc, max_vars=10):
     the distinct sets of visible series (none sharing a slot position) are the options, named after the
     smallest assignment giving each. Returns (packs, hidden): packs = [[(label, [series positions]), ...]]
     with the default (fewest flags set, labelled Default) first; hidden = series positions no option shows."""
-    vars_of = [series_switch_vars(s) for s in series]
+    vars_of = [series_switch_vars(s) - ctx.switch.keys() for s in series]  # assumed flags aren't choices
     if not any(vars_of):  # most trees: no flag-switched paths
         return [], set()
     parent = {}
@@ -629,6 +663,13 @@ def branch_packs(series, ctx, loc, max_vars=10):
             parent[find(a)] = find(vs[0])
         if vs:
             find(vs[0])
+    # series that sit on the same slot positions are alternatives, even when their flags never meet in one
+    # potential (TLW_Rome: one flag per tree): their flags form one choice
+    cells = [{(s['slot'], m['pos']) for m in s['missions']} for s in series]
+    for i in range(len(series)):
+        for j in range(i + 1, len(series)):
+            if vars_of[i] and vars_of[j] and cells[i] & cells[j]:
+                parent[find(min(vars_of[j]))] = find(min(vars_of[i]))
     comps = {}
     for v in parent:
         comps.setdefault(find(v), []).append(v)
@@ -641,7 +682,7 @@ def branch_packs(series, ctx, loc, max_vars=10):
         options = {}  # frozenset(visible) -> the smallest assignments (lists of True variables) giving it
         for bits in range(1 << len(comp)):
             on = [v for j, v in enumerate(comp) if bits >> j & 1]
-            c = Ctx(ctx.tag, ctx.st, ctx.cg, ctx.rel, ctx.geo, ctx.was, {v: v in on for v in comp})
+            c = ctx.copy(switch={**ctx.switch, **{v: v in on for v in comp}})
             vis = [i for i in members if ev_block(series[i]['potential'], c) is not False]
             cells = [c for i in vis for c in {(series[i]['slot'], m['pos']) for m in series[i]['missions']}]
             if not vis or len(cells) != len(set(cells)):  # two visible series on one slot position
@@ -651,6 +692,12 @@ def branch_packs(series, ctx, loc, max_vars=10):
                 options[key] = [on]
             elif len(on) == len(options[key][0]):
                 options[key].append(on)
+        # two choices at once whose series are just both choices together (Persian + Chinese) aren't a choice
+        def combined(k, ons):
+            a = set(ons[0])
+            parts = [o for o, ov in options.items() if o != k and set(ov[0]) < a]
+            return len(a) > 1 and bool(parts) and frozenset().union(*parts) == k
+        options = {k: v for k, v in options.items() if not combined(k, v)}
         # a set that is part of another one comes from flags that hide one path without unlocking another
         # (two religions picked at once): not a real choice
         options = {k: v for k, v in options.items() if not any(k < o for o in options)}
@@ -911,9 +958,12 @@ def read_tags(path):
 
 
 def read_tag_map(path):
-    """{TAG: [(label, [mission files] or None), ...]}: one tag per line, optionally 'TAG = file file ...'.
-    Switchable trees are separated by '|', each 'Label: files' (the first is the original; its label is
-    optional and empty files mean auto-detect). Missing file = empty."""
+    """{TAG: [(label, [mission files] or None, {flag: bool}), ...]}: one tag per line, optionally
+    'TAG = file file ...'. Switchable trees are separated by '|', each 'Label: files' (the first is the
+    original; its label is optional and empty files mean auto-detect). '+name' / '-name' among the files
+    assume that country flag or modifier set / unset for the tree; '>TAG >TAG' shows the tree as if the
+    country had formed those tags in turn (all its stages unlocked at once); 'none' = no tree. A label
+    'TAG' shows as "Form <TAG's name>", 'TAG "Name"' as "Form Name". Missing file = empty."""
     out = {}
     if not os.path.isfile(path):
         return out
@@ -927,7 +977,12 @@ def read_tag_map(path):
             label, colon, files = part.partition(':')
             if not colon:
                 label, files = '', part
-            variants.append((label.strip(), files.split() or None))
+            words = files.split()
+            assume = {w[1:]: w[0] == '+' for w in words if w[0] in '+-' and len(w) > 1}
+            chain = [w[1:].upper() for w in words if w[0] == '>' and len(w) > 1]
+            names = [w for w in words if w[0] not in '+->']
+            files = [] if names == ['none'] else names or None  # "none": no tree for this variant
+            variants.append((label.strip(), files, assume, chain))
         out[tag] = variants
     return out
 
@@ -1075,12 +1130,13 @@ def main():
     for r in roots:
         if not os.path.isdir(r):
             sys.exit(f'Game folder not found: {r}\nSet ROOTS at the top of {os.path.basename(__file__)}.')
-    full_roots = roots + ([mod] if ACTUM_MODE and os.path.isdir(mod) else [])  # the mod folder only with Actum on
+    full_roots = roots + ([mod] if os.path.isdir(mod) else [])
     L, Lab = Layers(full_roots), Layers(roots)
 
-    dedicated = read_tags(here(SUBMOD_FILE))
-    additional = [t for t in read_tags(here(ADDITIONAL_FILE)) if t not in dedicated]
+    actum_map = read_tag_map(here(ACTUM_FILE))
+    additional = [t for t in read_tags(here(ADDITIONAL_FILE)) if t not in actum_map]
     favorites = read_tags(here(FAVORITES_FILE))
+    actum_favorites = read_tags(here(ACTUM_FAVORITES_FILE))
     ab_map = read_tag_map(here(AB_FILE))
 
     print('reading game files...', file=sys.stderr)
@@ -1089,11 +1145,16 @@ def main():
     cgroups, corder, cmembers = game['cgroups'], game['corder'], game['cmembers']
     religions, geo = game['religions'], game['geo']
     water, wasteland, sprites = game['water'], game['wasteland'], game['sprites']
-    series_aba = game['series_aba'] if ACTUM_MODE else []
     series_ab = [s for s in game['series_ab'] if fnmatch.fnmatch(s['file'].lower(), AB_MISSION_FILES.lower())]
-    ab_by_file = {}
-    for i, s in enumerate(series_ab):
-        ab_by_file.setdefault(s['file'].lower(), []).append(i)
+    mod_missions = {os.path.basename(p).lower() for p in Layers([mod]).files('missions').values()}
+    series_aba = [s for s in game['series_aba'] if s['file'].lower() in mod_missions
+                  or fnmatch.fnmatch(s['file'].lower(), AB_MISSION_FILES.lower())]
+    def by_file(series):
+        out = {}
+        for i, s in enumerate(series):
+            out.setdefault(s['file'].lower(), []).append(i)
+        return out
+    ab_by_file, aba_by_file = by_file(series_ab), by_file(series_aba)
 
     owners = {pid: st['owner'] for pid, st in prov.items()}
     alive = sorted({o for o in owners.values() if o})
@@ -1137,16 +1198,34 @@ def main():
     def tree(src, idx, ctx, lc, mt):
         """(series indexes in the page data, branching packs) of a country's tree. Series no branch
         choice shows are left out; packs = [[label, [series indexes]], ...], default option first."""
+        if ctx.strict:  # a '>TAG' chain: only the series the country gets as all its stages at once
+            idx = [i for i in idx if ev_block(src[i]['potential'], ctx) is not False]
+        elif ctx.switch:  # '+flag' / '-flag' only: drop the series the flags rule out
+            plain = Ctx(ctx.tag, ctx.st, ctx.cg, ctx.rel, ctx.geo)
+            idx = [i for i in idx if ev_block(src[i]['potential'], ctx) is not False
+                   or ev_block(src[i]['potential'], plain) is False]
+        if ctx.strict:  # of two series on the same slot positions, keep the one the final tag gets
+            ok = {i: ev_block(src[i]['potential'], ctx.strict) is not False for i in idx}
+            cells = {i: {(src[i]['slot'], m['pos']) for m in src[i]['missions']} for i in idx}
+            idx = [i for i in idx if ok[i] or not any(ok[j] and cells[i] & cells[j] for j in idx if j != i)]
         packs, hidden = branch_packs([src[i] for i in idx], ctx, loc)
         out = {k: keep(src[i], lc, mt) for k, i in enumerate(idx) if k not in hidden}
         return list(out.values()), [[[lb, [out[k] for k in ks]] for lb, ks in p] for p in packs]
 
-    # Ante Bellum trees only for the tags in ab.txt: their mapped files, or else the AB series they match
+    # Trees only for the tags in ab.txt / actum.txt: their mapped files, or else the series they match.
+    # Both kinds go through the same code; the page data gets {prefix}, {prefix}Forms, {prefix}Br, {prefix}Mt
+    # (prefix 'ab' for Ante Bellum, 'act' for Actum; the AB ones keep their older names br / mt).
     alive_set = set(alive)
     ab_tree = [t for t in ab_map if t in alive_set]
-    ab_bad_files = sorted({f for vs in ab_map.values() for _, fs in vs if fs for f in fs if f.lower() not in ab_by_file})
-    form_tags = {lb.upper() for vs in ab_map.values() for lb, _ in vs if lb.upper() in colors}
-    ab_no_tree = []
+    actum_tree = [t for t in actum_map if t in alive_set]
+    bad_files = {name: sorted({f for vs in m.values() for _, fs, *_ in vs if fs for f in fs if f.lower() not in bf})
+                 for name, m, bf in (('ab.txt', ab_map, ab_by_file), ('actum.txt', actum_map, aba_by_file))}
+    form_label = lambda lb: re.fullmatch(r'([A-Za-z0-9]{3})(?:\s+"([^"]+)")?', lb.strip())  # TAG or TAG "Name"
+    form_tags = {m.group(1).upper() for mp in (ab_map, actum_map) for vs in mp.values() for lb, *_ in vs
+                 for m in [form_label(lb)] if m and m.group(1).upper() in colors}
+    no_tree = {'ab.txt': [], 'actum.txt': []}
+    KINDS = (('ab', 'ab.txt', ab_map, series_ab, ab_by_file, 'br', 'mt'),
+             ('act', 'actum.txt', actum_map, series_aba, aba_by_file, 'actBr', 'actMt'))
 
     lore_list, lore_idx = [], {}  # distinct lore texts; many tags share a regional one
     tags = {}
@@ -1154,52 +1233,53 @@ def main():
         st = hist.get(t, {})
         ctx = Ctx(t, st, cgroups, religions, geo)
         facts = identity_facts(ctx)
-        aba_idx = series_for(series_aba, ctx, facts)
-        ab_idx, ab_forms = [], []
-        if t in ab_map:
-            for k, (label, files) in enumerate(ab_map[t]):
-                idx = ([i for f in files for i in ab_by_file.get(f.lower(), [])] if files
-                       else series_for(series_ab, ctx, facts))
-                if k == 0:
-                    ab_idx = idx
-                    if not idx:
-                        ab_no_tree.append(t)
-                ab_forms.append((label, idx))
         name, lore = game['names'][t], game['lore'][t]
         if lore not in lore_idx:
             lore_idx[lore] = len(lore_list)
             lore_list.append(lore)
-        lc, mt = (ctx, name, clean_loc(loc.get(t + '_ADJ')) or name), {}
-        tags[t] = {
+        lc = (ctx, name, clean_loc(loc.get(t + '_ADJ')) or name)
+        x = tags[t] = {
             'name': name,
             'color': colors.get(t),
             'culture': st.get('primary_culture'), 'religion': st.get('religion'),
             'provs': provs.get(t, 0), 'dev': dev.get(t, 0), 'lore': lore_idx[lore],
-            'aba': tree(series_aba, aba_idx, ctx, lc, mt)[0],
         }
-        tags[t]['ab'], br = tree(series_ab, ab_idx, ctx, lc, mt)
-        if br:
-            tags[t]['br'] = br
-        if mt:
-            tags[t]['mt'] = mt
-        if len(ab_forms) > 1:  # switchable trees: a label that is a tag means forming that country
-            def form(label, idx):
-                f, fctx, flc, fmt = {'label': label}, ctx, lc, {}
-                if label.upper() in form_tags:  # its texts use the formed country's name
-                    f['tag'] = ft = label.upper()
-                    fname = clean_loc(loc.get(ft)) or ft
-                    f['label'] = 'Form ' + fname
-                    flc = (ctx, fname, clean_loc(loc.get(ft + '_ADJ')) or fname)
-                    # branch packs are evaluated as the formed country (its series check tag = GER); every
-                    # series of the mapped files stays, e.g. all of Germany's state-specific fifth groups
-                    fctx = Ctx(ft, st, cgroups, religions, geo, {ft, t})
-                f['ab'], fbr = tree(series_ab, idx, fctx, flc, fmt)
-                if fbr:
-                    f['br'] = fbr
-                if fmt:
-                    f['mt'] = fmt
-                return f
-            tags[t]['abForms'] = [form(lb or name, idx) for lb, idx in ab_forms]
+        for key, fname, tmap, series, bf, br_key, mt_key in KINDS:
+            if t not in tmap:
+                continue
+            variants = []
+            for label, files, assume, chain in tmap[t]:
+                vctx = with_switch(with_chain(ctx, chain), assume)  # '>TAG' and '+flag' / '-flag' in the txt line
+                variants.append((label, [i for f in files for i in bf.get(f.lower(), [])] if files is not None
+                                 else series_for(series, vctx, facts), vctx))
+            if not variants[0][1] and tmap[t][0][1] != []:  # [] = "none" on purpose
+                no_tree[fname].append(t)
+            mt = {}
+            x[key], br = tree(series, variants[0][1], variants[0][2], lc, mt)
+            if br:
+                x[br_key] = br
+            if mt:
+                x[mt_key] = mt
+            if len(variants) > 1:  # switchable trees: a label that is a tag means forming that country
+                def form(label, idx, vctx):
+                    f, fctx, flc, fmt = {'label': label}, vctx, lc, {}
+                    fm = form_label(label)
+                    if fm and fm.group(1).upper() in form_tags:  # its texts use the formed country's name
+                        f['tag'] = ft = fm.group(1).upper()
+                        fname_ = fm.group(2) or clean_loc(loc.get(ft)) or ft  # 'VSG "Suebi"': a custom name
+                        f['label'] = 'Form ' + fname_
+                        flc = (ctx, fname_, clean_loc(loc.get(ft + '_ADJ')) or fname_)
+                        # branch packs are evaluated as the formed country (its series check tag = GER); every
+                        # series of the mapped files stays, e.g. all of Germany's state-specific fifth groups
+                        # (a '>TAG' chain already makes it the formed country, and keeps its stages)
+                        fctx = vctx if vctx.strict else Ctx(ft, st, cgroups, religions, geo, {ft, t}, vctx.switch)
+                    f['ab'], fbr = tree(series, idx, fctx, flc, fmt)
+                    if fbr:
+                        f['br'] = fbr
+                    if fmt:
+                        f['mt'] = fmt
+                    return f
+                x[key + 'Forms'] = [form(lb or name, idx, vctx) for lb, idx, vctx in variants]
 
     print('rendering map...', file=sys.stderr)
     pimg = province_image(L, SCALE)
@@ -1248,7 +1328,7 @@ def main():
 
     print('packing flags and icons...', file=sys.stderr)
     flag_files = find_files(full_roots, 'gfx/flags', {'.tga', '.png', '.dds'})
-    want = set(alive) | set(dedicated) | set(additional) | set(favorites) | form_tags
+    want = set(alive) | set(actum_map) | set(additional) | set(favorites) | set(actum_favorites) | form_tags
     flags = atlas({t: image_entry(flag_files[t], 64) for t in sorted(want) if t in flag_files}, 64)
 
     strip_path = texture(full_roots, sprites.get('GFX_icon_religion', 'gfx/interface/icon_religion.dds'))
@@ -1294,9 +1374,11 @@ def main():
         s['missions'] = [[mindex[m['id']], m['icon'], m['pos'], [mindex.get(r, r) for r in m['req']], m['title'], m['desc']]
                          for m in s['missions']]
     for x in tags.values():  # per-country mission texts, keyed by the same indexes
-        for o in [x] + x.get('abForms', []):
+        for o in [x] + x.get('abForms', []) + x.get('actForms', []):
             if 'mt' in o:
                 o['mt'] = {mindex[i]: v for i, v in o['mt'].items()}
+        if 'actMt' in x:
+            x['actMt'] = {mindex[i]: v for i, v in x['actMt'].items()}
     tag_bbox = {}  # per country, merged from its provinces' boxes
     for pid, b in pimg['bbox'].items():
         t = p_owner[pid] if pid < nprov else ''
@@ -1305,13 +1387,14 @@ def main():
             tb[:] = [min(tb[0], b[0]), min(tb[1], b[1]), max(tb[2], b[2]), max(tb[3], b[3])]
 
     data = {  # text data, embedded gzipped; images and music go in `binary`
-        'title': TITLE, 'actum': ACTUM_MODE,
+        'title': TITLE,
         'w': pimg['w'], 'h': pimg['h'], 'bbox': tag_bbox,
         'owner': p_owner, 'kind': p_kind, 'pcul': p_cul, 'prel': p_rel,
         'pname': [game['prov_names'].get(f'PROV{i}') or pnames.get(i, '') for i in range(nprov)],
         'tags': tags, 'lore': lore_list, 'series': out_series,
         'cultures': cul_out, 'cgroups': grp_out, 'groupCultures': group_cultures, 'religions': rel_out,
-        'dedicated': dedicated, 'additional': additional, 'favorites': favorites, 'abTree': ab_tree,
+        'additional': additional, 'favorites': favorites, 'actumFavorites': actum_favorites,
+        'abTree': ab_tree, 'actumTree': actum_tree,
         'flags': {'idx': flags['idx'], 'cols': flags['cols']},
         'relIcons': {'idx': rel_icons['idx'], 'cols': rel_icons['cols']},
         'msnIcons': {'cols': msn_icons['cols']},
@@ -1335,19 +1418,22 @@ def main():
         if missing:
             print(f'  {label}: not on the map at start: {" ".join(missing)}', file=sys.stderr)
 
-    print(f'wrote {out} ({os.path.getsize(out) // 1024} KB): {len(alive)} tags, {len(dedicated)} dedicated, '
+    print(f'wrote {out} ({os.path.getsize(out) // 1024} KB): {len(alive)} tags, {len(actum_tree)} with an Actum tree, '
           f'{len(additional)} additional content, {len(ab_tree)} with an Ante Bellum tree, '
           f'{len(flags["idx"])} flags, {len(rel_icons["idx"])} religion icons, {len(msn_icons["idx"])} mission icons, '
           f'{sum(1 for t in tags.values() if lore_list[t["lore"]])} with lore', file=sys.stderr)
-    report('submod.txt', dedicated)
+    report('actum.txt', list(actum_map))
     report('additional.txt', additional)
     report('favorites.txt', favorites)
+    report('actum_favorites.txt', actum_favorites)
     report('ab.txt', list(ab_map))
-    if ab_bad_files:
-        print(f'  ab.txt: no such {AB_MISSION_FILES} mission file: {" ".join(ab_bad_files)}', file=sys.stderr)
-    if ab_no_tree:
-        print(f'  ab.txt: no Ante Bellum tree found for: {" ".join(ab_no_tree)} '
-              f'(map them yourself with "TAG = file.txt")', file=sys.stderr)
+    for fname, bad in bad_files.items():
+        if bad:
+            print(f'  {fname}: no such mission file: {" ".join(bad)}', file=sys.stderr)
+    for fname, lst in no_tree.items():
+        if lst:
+            print(f'  {fname}: no mission tree found for: {" ".join(lst)} '
+                  f'(map them yourself with "TAG = file.txt")', file=sys.stderr)
     if unlisted_groups:
         print(f'  culture.txt: no colour for these groups (generated instead): {" ".join(unlisted_groups)}',
               file=sys.stderr)

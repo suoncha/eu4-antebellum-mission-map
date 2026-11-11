@@ -1,0 +1,73 @@
+# Tags with an Ante Bellum: Actum mission tree. They are highlighted in the Actum map mode, and the
+# country panel shows their Actum tree.
+#
+# Same syntax as ab.txt. One tag per line; the script finds the tag's tree by itself in the Actum mission
+# files (AB_*.txt with the submod's versions winning, plus every file in the submod's missions folder).
+# To choose the files yourself, write them after "=", e.g.:   LIT = AB_Baltic_LIT.txt
+# Switchable trees (formables, alternatives) are separated by "|", each written as "Label: files".
+# "+flag" / "-flag" after the files assume that country flag (or modifier, or government attribute) set / unset for the tree, e.g.
+#   WAL = ABMP_WAL.txt +wal_unlocked_timed     (drops the locked placeholder series)
+#   ">TAG >TAG" after the files shows the tree as if the country had formed those tags in turn (every stage
+#   unlocked, no Form button), e.g.   ATG = AB_Anatolia_RUM_Christian.txt >RUM >ROM
+#   "none" = no tree; a label TAG "Name" shows as "Form Name", e.g.   GAL = none | VSG "Suebi": TLW_Iberian_VSG.txt >VSG
+# "found:" comments show what the script detected when this file was generated. Lines starting with
+# # are ignored.
+
+AKG = AB_Anatolia_RUM_Muslim.txt >RUM >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Akgunids: the full Rome-claimant tree, unlocked from the start
+AKR = AB_Anatolia_RUM_Muslim.txt >RUM >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Chepnids: the full Rome-claimant tree, unlocked from the start
+ASU = none | VSG: TLW_Iberian_VSG.txt >VSG +ab_missionswitch_rome_default | ROM: TLW_Rome.txt >ROM  # Asturias: no Actum tree of its own; forms the Visigoths / Rome
+ATG = AB_Anatolia_RUM_Christian.txt >RUM >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Anushteginids: the full Rome-claimant tree, unlocked from the start
+BLO = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Beloozero: the full Rome-claimant tree, unlocked from the start
+BYZ = AB_Anatolia_BYZ.txt >ROM +byz_timed_mission_unlocked +byz_persian_war_victory +byz_chinese_war_victory  # Byzantium: the full Rome-claimant tree, unlocked from the start
+CAP = AB_Italian_CAP.txt >ROM +trc_mission_unlocked +cap_embraced_sol_invictus +byz_persian_war_victory +byz_chinese_war_victory  # Capua: the full Rome-claimant tree, unlocked from the start
+CHR = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Chernihiv: the full Rome-claimant tree, unlocked from the start
+COF  # Kataqart - found: TLW_Punic_Aldiraq.txt TLW_Punic_COF.txt
+EPI  # Epirus - found: TLW_Anatolia_EPI.txt
+GAL = none | VSG "Suebi": TLW_Iberian_VSG.txt >VSG +ab_missionswitch_rome_default | ROM: TLW_Rome.txt >ROM  # Galicia: no Actum tree of its own; forms the Visigoths / Rome
+GUY = AB_France_AQT.txt >AQT >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Gascony: the full Rome-claimant tree, unlocked from the start
+KIE = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Kyiv: the full Rome-claimant tree, unlocked from the start
+LEN  # Dylamea - found: TLW_Punic_Aldiraq.txt TLW_Punic_LEN.txt
+MOS = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Muscovy: the full Rome-claimant tree, unlocked from the start
+NAV = none | VSG "Vasconia": TLW_Iberian_VSG.txt >VSG +ab_missionswitch_rome_default | ROM: TLW_Rome.txt >ROM  # Navarre: no Actum tree of its own; forms the Visigoths / Rome
+NCI = AB_Anatolia_NCI.txt -NCI_ab_missions +TLW_NCI_preview +enables_stratocratic_missions  # Nicaea: TLW's tree, all unlocked, religion still a choice
+NZH = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Nizhny Novgorod: the full Rome-claimant tree, unlocked from the start
+OKA = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Odoyev: the full Rome-claimant tree, unlocked from the start
+PDL = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Podolia: the full Rome-claimant tree, unlocked from the start
+PLT = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Polotsk: the full Rome-claimant tree, unlocked from the start
+POW  # Buhutan - found: TLW_Punic_Aldiraq.txt TLW_Punic_POW.txt
+PSK = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Pskov: the full Rome-claimant tree, unlocked from the start
+PU1 = TLW_Punic_CTG.txt  # Tanit: the whole tree, Carthage's part unlocked from the start
+PU2 = TLW_Punic_CTG.txt  # Utica: the whole tree, Carthage's part unlocked from the start
+PU3 = TLW_Punic_CTG.txt  # Hadrumetum: the whole tree, Carthage's part unlocked from the start
+PU4 = TLW_Punic_CTG.txt  # Thapsus: the whole tree, Carthage's part unlocked from the start
+PU5 = TLW_Punic_CTG.txt  # Iscina: the whole tree, Carthage's part unlocked from the start
+PU6 = TLW_Punic_CTG.txt  # Meninx: the whole tree, Carthage's part unlocked from the start
+PU7 = TLW_Punic_CTG.txt  # Shabratan: the whole tree, Carthage's part unlocked from the start
+PU8 = TLW_Punic_CTG.txt  # Ubon: the whole tree, Carthage's part unlocked from the start
+PU9 = TLW_Punic_CTG.txt  # Cartenna: the whole tree, Carthage's part unlocked from the start
+RSO = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Rostov: the full Rome-claimant tree, unlocked from the start
+RYA = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Ryazan: the full Rome-claimant tree, unlocked from the start
+SER = AB_Anatolia_SER.txt >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Serbia: the full Rome-claimant tree, unlocked from the start
+SMO = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Smolensk: the full Rome-claimant tree, unlocked from the start
+SRK = AB_Anatolia_RUM_Zoro.txt >RUM >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Sarukhanids: the full Rome-claimant tree, unlocked from the start
+TKK = AB_Anatolia_RUM_Christian.txt >RUM >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Artuqids: the full Rome-claimant tree, unlocked from the start
+TVE = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Tver: the full Rome-claimant tree, unlocked from the start
+VLD = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Vladimir: the full Rome-claimant tree, unlocked from the start
+VLG = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Vologda: the full Rome-claimant tree, unlocked from the start
+VOL = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Halych-Volyn: the full Rome-claimant tree, unlocked from the start
+WRT = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Turov: the full Rome-claimant tree, unlocked from the start
+YAR = AB_Rus_UKR.txt >UKR >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Yaroslavl: the full Rome-claimant tree, unlocked from the start
+ZNG = AB_Anatolia_RUM_Christian.txt >RUM >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Zangids: the full Rome-claimant tree, unlocked from the start
+LVA
+WLS
+ROB
+SLH
+KUC
+KRR
+PLN
+LUD
+ZAZ
+WAL = ABMP_WAL.txt +wal_unlocked_timed  # Wallachia: the timed mission always unlocked
+KNI = AB_Anatolia_LAT.txt >LAT >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Knights Hospitaller: the full Latin Empire / Rome tree, unlocked from the start
+CYP = AB_Anatolia_LAT.txt >LAT >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Cyprus: the full Latin Empire / Rome tree, unlocked from the start
+ATI = AB_Anatolia_LAT.txt >LAT >ROM +byz_persian_war_victory +byz_chinese_war_victory  # Antioch: the full Latin Empire / Rome tree, unlocked from the start

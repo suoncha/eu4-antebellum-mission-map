@@ -1,3 +1,13 @@
 # Tags with new content in Ante Bellum: Actum (events, reforms, decisions, ...) but no new mission tree.
 # Drawn striped on the map. Separate with spaces, commas or new lines. Lines starting with # are ignored.
 
+
+NOR DAN SWE SCO
+BAV BOH BRB BRI CDL DRE FRI GEL GHT GOS HNN HOL LIE MIN MVA NOV
+NRD PSS REG SLZ SNG STY THU TIR TNT UTR
+YUA YUE ZHH
+AKT AMA AWG BSS DTE HTA HTK IMG ISK KMK KTB KWH MGM MRI MRT NGO NKT
+ODA OGS OIT OUC RFR SBA SOO STK TKD TKG TKI UDO UES UKM UTN UWA YMN
+AAC ANS AUG BAD BAM BRG BYT CCR DNZ DWT FKN FRN GNV HAS HES HYA KLE KNZ KOL
+LUX MAI MKG NSA NUM OLD RIG ROT RVA RVB SAX SWA SWI TKL TRI ULM VER WBG
+OBD VLT SOR POM LIT

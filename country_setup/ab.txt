@@ -7,6 +7,10 @@
 # Switchable trees (formables, alternatives) are separated by "|", each written as "Label: files". The
 # first one is the original tree; its label is optional and leaving its files empty means auto-detect.
 # A label that is a country tag shows as "Form <country>", e.g.:   ODA = | JAP: AB_Asia_JAP.txt
+# "+flag" / "-flag" after the files assume that country flag (or modifier, or government attribute) set / unset for the tree, e.g.
+#   XYZ = AB_File.txt +xyz_unlocked     (drops a locked placeholder series)
+#   ">TAG >TAG" after the files shows the tree as if the country had formed those tags in turn (every stage
+#   unlocked, no Form button), e.g.   XYZ = AB_File.txt >ABC
 # "found:" comments show what the script detected when this file was generated. Lines starting with
 # # are ignored.
 

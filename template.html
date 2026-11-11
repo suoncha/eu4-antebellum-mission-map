@@ -104,6 +104,8 @@ h2 { font-family: var(--f-display); font-size: 1.35rem; margin: 0; text-wrap: ba
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .chip { background: var(--chip); border-radius: 2px; padding: 1px 6px; font-size: .78rem; font-variant-numeric: tabular-nums; }
 .chip.d { background: var(--accent); color: var(--panel); font-weight: 600; }
+button.chip { border: 0; font-family: inherit; cursor: pointer; }  /* tree chips switch to their map mode */
+button.chip.d:not(.on) { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 details { border-bottom: 1px solid var(--line); }
 details > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 9px 2px; font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
 details > summary::-webkit-details-marker { display: none; }
@@ -118,9 +120,6 @@ details > .body { padding: 0 0 10px; }
 .flag { display: inline-block; flex: none; background-repeat: no-repeat; border: 1px solid var(--border); border-radius: 2px; }
 .ricon { display: inline-block; flex: none; background-repeat: no-repeat; }
 .empty { color: var(--muted); font-size: .88rem; margin: 4px 0 8px; }
-textarea { width: 100%; box-sizing: border-box; font: .85rem/1.4 var(--f-mono); padding: 6px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 3px; resize: vertical; }
-.tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; align-items: center; }
-.tools .note { font-size: .78rem; color: var(--muted); }
 
 /* country detail */
 .dhead { display: flex; gap: 12px; align-items: center; }
@@ -220,11 +219,11 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const fmt = n => n.toLocaleString('en-US');
 
 // ---------------------------------------------------------------- modes
-// The first mode listed is the default; keys 1, 2, ... in this order. The Actum mode is there when
-// ACTUM_MODE is on in build_map.py.
+// The first mode listed is the default; keys 1, 2, ... in this order. All modes show the same world
+// (Ante Bellum with the Actum submod on top); Ante Bellum and Actum differ in the trees they show.
 const MODES = [
-  ...(D.actum ? [{ id: 'actum', label: 'Actum' }] : []),
   { id: 'ante-bellum', label: 'Ante Bellum' },
+  { id: 'actum', label: 'Actum' },
   { id: 'religion', label: 'Religion' },
   { id: 'culture', label: 'Culture' },
 ].map((m, i) => ({ ...m, key: String(i + 1) }));
@@ -232,14 +231,17 @@ const hasMode = id => MODES.some(m => m.id === id);
 let mode = MODES[0].id;
 
 // ---------------------------------------------------------------- tag sets
-const KEY = 'aba-mission-map-dedicated';
-let DED = new Set(D.dedicated);
-try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (Array.isArray(s)) DED = new Set(s); } catch (e) {}
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...DED])); } catch (e) {} };
-const ADD = new Set(D.additional);
-const ABT = new Set(D.abTree);
-const parseTags = s => s.toUpperCase().split(/[\s,;]+/).filter(Boolean);
-const actumState = t => DED.has(t) ? 2 : ADD.has(t) ? 1 : 0;
+const ACT = new Set(D.actumTree);   // actum.txt: Actum mission tree
+const ADD = new Set(D.additional);  // additional.txt: other Actum content, no new tree (striped)
+const ABT = new Set(D.abTree);      // ab.txt: Ante Bellum mission tree
+const actumState = t => ACT.has(t) ? 2 : ADD.has(t) ? 1 : 0;
+// a country's tree in one of the two tree modes: series, Form variants, branch packs, own texts
+const TREE = {
+  'ante-bellum': x => ({ ab: x.ab, forms: x.abForms, br: x.br, mt: x.mt }),
+  actum: x => ({ ab: x.act, forms: x.actForms, br: x.actBr, mt: x.actMt }),
+};
+const hasTree = (t, m) => (m === 'actum' ? ACT : ABT).has(t);
+const favorites = () => mode === 'actum' ? D.actumFavorites : D.favorites;
 
 // ---------------------------------------------------------------- colours
 function hashColor(t) { let h = 0; for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return [80 + h % 150, 80 + (h >> 8) % 150, 80 + (h >> 16) % 150]; }
@@ -550,14 +552,6 @@ function up(e) {
 const tagAt = e => { const r = wrap.getBoundingClientRect(); const p = pick(e.clientX - r.left, e.clientY - r.top); return p >= 0 ? D.owner[p] || null : null; };
 wrap.addEventListener('pointerup', up); wrap.addEventListener('pointercancel', up);
 wrap.addEventListener('pointerleave', () => { $('hover').hidden = true; });
-wrap.addEventListener('contextmenu', e => {
-  if (e.target.closest('.modes, .shields, .zoom')) return;
-  e.preventDefault();
-  if (!hasMode('actum')) return;
-  const t = tagAt(e); if (!t) return;
-  if (mode !== 'actum') setMode('actum');
-  DED.has(t) ? DED.delete(t) : DED.add(t); save(); paint(); refreshPanel();
-});
 wrap.addEventListener('wheel', e => { if (e.target.closest('.shields')) return; e.preventDefault(); const r = wrap.getBoundingClientRect(); zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
 $('zin').onclick = () => { const r = wrap.getBoundingClientRect(); zoomAt(1.5, r.width / 2, r.height / 2); };
 $('zout').onclick = () => { const r = wrap.getBoundingClientRect(); zoomAt(1 / 1.5, r.width / 2, r.height / 2); };
@@ -576,7 +570,7 @@ function hover(x, y) {
   let extra = '';
   if (mode === 'religion' && D.prel[p]) extra = ' · ' + esc((D.religions[D.prel[p]] || {}).name || D.prel[p]);
   else if (mode === 'culture' && D.pcul[p]) extra = ' · ' + esc((D.cultures[D.pcul[p]] || {}).name || D.pcul[p]);
-  else if (t && mode === 'actum') extra = ['', ' · additional content', ' · dedicated tree'][actumState(t)];
+  else if (t && mode === 'actum') extra = ['', ' · Actum additional content', ' · Actum tree'][actumState(t)];
   else if (t && mode === 'ante-bellum' && ABT.has(t)) extra = ' · Ante Bellum tree';
   h.innerHTML = `${esc(D.pname[p] || '#' + p)}${t ? ` · <b>${esc(tagName(t))}</b> <span class="tagcode">${t}</span>` : ''}${extra}`;
   h.hidden = false;
@@ -589,23 +583,25 @@ function hover(x, y) {
 function renderModes() {
   $('modes').innerHTML = MODES.map(m => `<button data-mode="${m.id}" aria-pressed="${m.id === mode}" title="${esc(m.label)} (${m.key})">${esc(m.label)}</button>`).join('');
   const L = {
-    actum: '<span><i class="sw ded"></i>Dedicated mission tree</span><span><i class="sw add"></i>Additional content</span><span><i class="sw none"></i>None</span>',
+    actum: '<span><i class="sw ded"></i>Actum mission tree</span><span><i class="sw add"></i>Additional content</span><span><i class="sw none"></i>None</span>',
     'ante-bellum': '<span><i class="sw ded"></i>Ante Bellum mission tree</span><span><i class="sw none"></i>None</span>',
     religion: '<span><i class="sw multi"></i>Province religion</span>',
     culture: '<span><i class="sw multi"></i>Province culture</span>',
   };
   $('legend').innerHTML = L[mode];
-  $('hint').textContent = `Click: details · Wheel: zoom · Drag: rotate · R: reset · Esc: close · 1–${MODES.length}: map mode` + (mode === 'actum' ? ' · Right click: toggle dedicated tree' : '');
+  $('hint').textContent = `Click: details · Wheel: zoom · Drag: rotate · R: reset · Esc: close · 1–${MODES.length}: map mode`;
 }
 $('modes').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
 function setMode(m) {
   if (m === mode) return;
+  const fav = favorites();
   mode = m; renderModes(); paint(); refreshPanel();
+  if (favorites() !== fav) renderShields();  // only Actum has its own favourites
   try { history.replaceState(null, '', '#' + m); } catch (e) {}
 }
 function renderShields() {
   const bar = $('shields'), x = bar.scrollLeft;  // re-rendering would reset the scroll position
-  bar.innerHTML = D.favorites.filter(t => D.tags[t]).map(t =>
+  bar.innerHTML = favorites().filter(t => D.tags[t]).map(t =>
     `<button class="shield${t === selected ? ' on' : ''}" data-tag="${t}" title="${esc(tagName(t))}">${flag(t, 52)}<span class="nm">${esc(tagName(t))}</span></button>`).join('');
   bar.scrollLeft = x;
   const on = bar.querySelector('.on');  // bring a selected favourite into view
@@ -622,18 +618,19 @@ $('shields').addEventListener('click', e => { const b = e.target.closest('[data-
 // ---------------------------------------------------------------- side panel: lists
 const panel = $('panel');
 const openState = {};  // section id -> open, remembered while the page is open
-function tagRow(t) {
+function tagRow(t, m) {
   const x = D.tags[t];
-  return `<div class="row" tabindex="0" data-tag="${t}">${flag(t, 22)}<span class="n">${esc(tagName(t))} <span class="tagcode">${t}</span></span><span class="c">${x ? `${x.provs} prov · ${fmt(x.dev)} dev` : 'not on map'}</span></div>`;
+  return `<div class="row" tabindex="0" data-tag="${t}"${m ? ` data-mode="${m}"` : ''}>${flag(t, 22)}<span class="n">${esc(tagName(t))} <span class="tagcode">${t}</span></span><span class="c">${x ? `${x.provs} prov · ${fmt(x.dev)} dev` : 'not on map'}</span></div>`;
 }
 const lazyRows = {};  // section id -> tags of a closed section, rendered when it is first opened
-const rows = tags => tags.map(tagRow).join('') || '<p class="empty">None.</p>';
-function section(id, title, tags, defOpen, extraHead = '') {
+const rows = (tags, m) => tags.map(t => tagRow(t, m)).join('') || '<p class="empty">None.</p>';
+// m: the map mode a row opens its country in (the tree sections); none = keep the current mode
+function section(id, title, tags, defOpen, extraHead = '', m = '') {
   const q = $('q').value.trim();
   const open = q ? tags.length > 0 : (openState[id] ?? defOpen);
-  if (open) delete lazyRows[id]; else lazyRows[id] = tags;
+  if (open) delete lazyRows[id]; else lazyRows[id] = { tags, m };
   return `<details data-sec="${id}"${open ? ' open' : ''}><summary>${extraHead}<span>${esc(title)}</span><span class="cnt">${tags.length}</span></summary><div class="body">${
-    open ? rows(tags) : ''}</div></details>`;
+    open ? rows(tags, m) : ''}</div></details>`;
 }
 const byName = (a, b) => tagName(a).localeCompare(tagName(b));
 function matches(t) {
@@ -644,16 +641,10 @@ function renderList() {
   rail.hidden = true;
   const all = Object.keys(D.tags).filter(matches).sort(byName);
   let html = '';
-  if (mode === 'actum') {
-    const ded = [...DED].filter(matches).sort(byName);
-    html = `<p class="grp">Dedicated mission trees</p><textarea id="ed" rows="3" spellcheck="false" aria-label="Tags with a dedicated mission tree">${[...DED].join(' ')}</textarea>
-      <div class="tools"><button class="btn" id="apply">Apply</button><button class="btn" id="revert">Reset</button><span class="note">Right click a country to toggle it.</span></div>` +
-      section('a-ded', 'Dedicated mission tree', ded, true) +
-      section('a-add', 'Additional content', all.filter(t => !DED.has(t) && ADD.has(t)), true) +
-      section('a-none', 'No mission tree', all.filter(t => !actumState(t)), false);
-  } else if (mode === 'ante-bellum') {
-    html = section('b-tree', 'Ante Bellum mission tree', all.filter(t => ABT.has(t)), true) +
-      section('b-none', 'No mission tree', all.filter(t => !ABT.has(t)), false);
+  if (mode === 'actum' || mode === 'ante-bellum') {  // one list for both tree modes
+    html = section('t-ab', 'Ante Bellum mission tree', all.filter(t => ABT.has(t)), true, '', 'ante-bellum') +
+      section('t-act', 'Actum mission tree', all.filter(t => ACT.has(t)), true, '', 'actum') +
+      section('t-none', 'No mission tree', all.filter(t => !ABT.has(t) && !ACT.has(t)), false);
   } else if (mode === 'religion') {
     const groups = {};
     for (const t of all) { const r = D.tags[t].religion || ''; (groups[r] = groups[r] || []).push(t); }
@@ -678,14 +669,10 @@ function renderList() {
     }
   }
   panel.innerHTML = html || '<p class="empty">No countries match.</p>';
-  if (mode === 'actum') {
-    $('apply').onclick = () => { DED = new Set(parseTags($('ed').value)); save(); paint(); renderList(); };
-    $('revert').onclick = () => { DED = new Set(D.dedicated); try { localStorage.removeItem(KEY); } catch (e) {} paint(); renderList(); };
-  }
 }
 panel.addEventListener('toggle', e => {
   const d = e.target, id = d.dataset && d.dataset.sec; if (!id) return;
-  if (d.open && lazyRows[id]) { d.querySelector('.body').innerHTML = rows(lazyRows[id]); delete lazyRows[id]; }
+  if (d.open && lazyRows[id]) { d.querySelector('.body').innerHTML = rows(lazyRows[id].tags, lazyRows[id].m); delete lazyRows[id]; }
   if (!$('q').value.trim()) openState[id] = d.open;
 }, true);
 
@@ -703,19 +690,25 @@ function refreshPanel() { selected ? renderDetail() : renderList(); }
 function renderDetail() {
   const t = selected, x = D.tags[t] || {};
   const cul = D.cultures[x.culture] || {}, rel = D.religions[x.religion] || {};
-  const st = actumState(t);
-  const status = mode === 'actum' ? (st === 2 ? '<span class="chip d">Dedicated mission tree</span>' : st === 1 ? '<span class="chip d">Additional content</span>' : '')
-    : mode === 'ante-bellum' && ABT.has(t) ? '<span class="chip d">Ante Bellum mission tree</span>' : '';
-  const useAB = mode === 'ante-bellum';
-  const forms = useAB && x.abForms, form = forms ? Math.min(formState[t] || 0, forms.length - 1) : 0;
-  const tr = forms ? forms[form] : useAB ? x : { ab: x.aba };  // this tree: series, own texts, branch packs
+  // status chips; the tree ones switch to their mode
+  const chip = (m, label) => `<button class="chip d${mode === m ? ' on' : ''}" data-go="${m}" aria-pressed="${mode === m}">${label}</button>`;
+  const status = (ABT.has(t) ? chip('ante-bellum', 'Ante Bellum mission tree') : '') +
+    (ACT.has(t) ? chip('actum', 'Actum mission tree') : ADD.has(t) ? '<span class="chip d">Actum additional content</span>' : '');
+  const treeMode = mode === 'actum' || mode === 'ante-bellum';
+  const base = treeMode && hasTree(t, mode) ? TREE[mode](x) : { ab: [] };
+  const fkey = mode + '|' + t, forms = base.forms, form = forms ? Math.min(formState[fkey] || 0, forms.length - 1) : 0;
+  const tr = forms ? forms[form] : base;  // this tree: series, own texts, branch packs
   // branching paths: a pack's series show only for the chosen option (default: the first, before choosing)
-  const packs = tr.br || [], bkey = k => t + '|' + form + '|' + k;
+  const packs = tr.br || [], bkey = k => fkey + '|' + form + '|' + k;
   const choice = packs.map((p, k) => Math.min(branchState[bkey(k)] || 0, p.length - 1));
   const inPack = new Set(packs.flatMap(p => p.flatMap(o => o[1])));
   const shownPack = new Set(packs.flatMap((p, k) => p[choice[k]][1]));
   const list = (tr.ab || []).filter(i => !inPack.has(i) || shownPack.has(i));
-  const showTree = mode === 'actum' || mode === 'ante-bellum';
+  const showTree = treeMode;
+  const other = mode === 'actum' ? 'ante-bellum' : 'actum', otherName = mode === 'actum' ? 'an Ante Bellum' : 'an Actum';
+  const noTree = hasTree(t, other)
+    ? `<p class="empty">No ${mode === 'actum' ? 'Actum' : 'Ante Bellum'} mission tree. This country has ${otherName} tree: <button class="btn" data-go="${other}">Show it</button></p>`
+    : '<p class="empty">No mission tree. This country uses the generic missions.</p>';
   const sec = (id, title, cnt, body) => `<details data-sec="${id}"${openState[id] ?? true ? ' open' : ''}><summary><span>${title}</span><span class="cnt">${cnt}</span></summary><div class="body">${body}</div></details>`;
   let extra;
   if (mode === 'religion') {
@@ -729,9 +722,9 @@ function renderDetail() {
       <div class="chips">${members.map(c => `<span class="chip${c === x.culture ? ' d' : ''}">${esc((D.cultures[c] || {}).name || c)}</span>`).join('')}</div>` : '<p class="empty">No culture group in the game files.</p>');
   } else {
     extra = sec('tree', 'Mission tree', list.length ? list.reduce((n, i) => n + D.series[i].missions.length, 0) + ' missions' : '', `
-      <p class="src">${useAB ? 'As in Ante Bellum' : `As in ${esc(D.title)}`}${list.length ? ' · hover a mission for details' : ''}</p>
+      <p class="src">${mode === 'ante-bellum' ? 'As in Ante Bellum' : 'As in Ante Bellum: Actum'}${list.length ? ' · hover a mission for details' : ''}</p>
       ${forms ? `<div class="tabs forms">${forms.map((f, k) => `<button data-form="${k}" aria-pressed="${k === form}">${f.tag ? flag(f.tag, 18) : ''}${esc(f.label)}</button>`).join('')}</div>` : ''}
-      ${list.length ? `<div class="tree" id="tree"></div>` : '<p class="empty">No mission tree. This country uses the generic missions.</p>'}`);
+      ${list.length ? `<div class="tree" id="tree"></div>` : noTree}`);
   }
   panel.innerHTML = `
     <div class="dhead">${flag(t, 56)}<div style="min-width:0">
@@ -746,7 +739,8 @@ function renderDetail() {
     ${extra}`;
   panel.scrollTop = 0;
   const rerender = f => b => b.onclick = () => { const y = panel.scrollTop; f(b); treeState = {}; renderDetail(); panel.scrollTop = y; };
-  panel.querySelectorAll('[data-form]').forEach(rerender(b => formState[t] = +b.dataset.form));
+  panel.querySelectorAll('[data-form]').forEach(rerender(b => formState[fkey] = +b.dataset.form));
+  panel.querySelectorAll('[data-go]').forEach(b => b.onclick = () => setMode(b.dataset.go));
   rail.hidden = true;
   if (showTree && list.length) renderTree(list, tr.mt || {}, packs.map((p, k) => ({
     opts: p, pick: choice[k], set: j => { const y = panel.scrollTop; branchState[bkey(k)] = j; treeState = {}; renderDetail(); panel.scrollTop = y; },
@@ -892,8 +886,10 @@ panel.addEventListener('focusin', e => { const c = e.target.closest('.card'); if
 panel.addEventListener('focusout', e => { if (e.target.closest('.card')) hideTip(); });
 panel.addEventListener('scroll', hideTip);
 
-panel.addEventListener('click', e => { if (e.target.closest('summary')) return; const r = e.target.closest('.row[data-tag]'); if (r) select(r.dataset.tag); });
-panel.addEventListener('keydown', e => { const r = e.target.closest('.row[data-tag]'); if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(r.dataset.tag); } });
+// a row of a tree section opens its country in that section's mode (Ante Bellum / Actum)
+const openRow = r => { if (r.dataset.mode && r.dataset.mode !== mode) { selected = r.dataset.tag; setMode(r.dataset.mode); } select(r.dataset.tag); };
+panel.addEventListener('click', e => { if (e.target.closest('summary')) return; const r = e.target.closest('.row[data-tag]'); if (r) openRow(r); });
+panel.addEventListener('keydown', e => { const r = e.target.closest('.row[data-tag]'); if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openRow(r); } });
 $('q').addEventListener('input', () => { if (selected) { selected = null; $('back').hidden = true; paint(); renderShields(); } renderList(); });
 $('back').onclick = () => select(null);
 
